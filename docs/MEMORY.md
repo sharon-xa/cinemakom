@@ -1,6 +1,6 @@
 # Memory: the investigation and fix plan
 
-> **Status (2026-11-25):** M0 done (the measuring tools). M1, the investigation, is under way: this PC's Linux runs, the allocator experiment and heaptrack are done (§5 M1, *Findings so far*); next are what isn't malloc's, the buffer comparison, then the laptop, phone and TV. Work through §5 in order and tick each box as it's done, with the date and the numbers. **Read it before changing caches, buffers, or how the player opens and closes.**
+> **Status (2026-11-25):** M0 done (the measuring tools). M1, the investigation, is under way: this PC's Linux runs, the allocator experiment and heaptrack are done (§5 M1, *Findings so far*); next are the laptop, the phone and the TV. Work through §5 in order and tick each box as it's done, with the date and the numbers. **Read it before changing caches, buffers, or how the player opens and closes.**
 
 The goal: **memory comes back when a feature is done with it, and stays flat over a long session.** Closing the player returns the app to about what it used before the video. Ten videos in a row use no more than one. Browsing for an hour levels off. This matters most on the weakest devices we support: low-end phones and TVs with 1.5 to 2 GB of RAM, where Android kills the app in the background, or the TV stutters, long before a desktop notices.
 
@@ -96,8 +96,8 @@ Linux (this PC, and the Omarchy laptop):
 - [x] Is the after-close memory the allocator? `malloc_trim(0)` experiment (§4.4): **mostly yes**, plus a small real leak *(2026-11-25)*
 - [x] Find the two native growths with heaptrack (below): **no leak per video; the idle jump is NVIDIA's GL driver** *(2026-11-26)*
 - [ ] The idle jump on other GPUs (the laptop), and whether a driver setting stops it here (`__GL_THREADED_OPTIMIZATIONS=0`)
-- [ ] What isn't malloc's: the ~150–240 MB that trimming leaves above start (thread stacks, GL driver maps; `/proc/<pid>/smaps` by mapping)
-- [ ] How much of the 4K peak is the 192 MB buffer? Run at 64 MB and compare
+- [x] What trimming leaves above start (`/proc/<pid>/smaps` by mapping): **mostly malloc's, split over its arenas**; capping them at 2 keeps it flat *(2026-11-26)*
+- [x] How much of the 4K peak is the 192 MB buffer? Run at 64 MB and compare: **~300 MB**, as media_kit uses it twice (finding 8) *(2026-11-26)*
 - [x] Browse test (T3): the image cache levels off at its cap, 100 MB; something else jumps at idle (below) *(2026-11-25)*
 - [x] Long-play test (T4): levels off *(2026-11-25)*
 
@@ -108,7 +108,20 @@ Linux (this PC, and the Omarchy laptop):
 3. **No leak per video (heaptrack).** glibc's in-use count after each close looked like a leak: 63, 66, 68, 78, 89, 99 MB (start 55). heaptrack says no. It recorded every native allocation in a 2-cycle and a 6-cycle run (`heaptrack_print -l -d`, the app stopped in the same closed state). After 6 videos the app held **8 MB less** than after 2, and nothing from libmpv, FFmpeg or media_kit was in the difference. What moved: Flutter's engine (−17 MB) and NVIDIA's driver (±3 MB), caches that rise and fall, and Wayland's event queue (+4 MB). media_kit's texture and GL objects are freed (§3.1, ruled out).
 4. **Browsing: images level off at the cache's cap.** 100 MB, ~190 images, from the first genre page on: Flutter's default cap works, the climb in §1.1 isn't the image cache past its limit.
 5. **But on idle Home, native memory jumps +100 MB, at the same moment in both runs** (about 10½ min after the app started, 7 min into the idle, then +20–40 again 3 min later). glibc's in-use count rises 74 → 173 MB: real allocations, not kept memory, and trimming doesn't return them. The Dart heap and the image cache don't change. Idle Home isn't still: its hero carousel moves on every 10 s (`home_hero.dart`). **heaptrack: it's NVIDIA's GL driver.** Comparing 10 idle minutes with 5: 107 of the 113 MB more comes from one of the driver's own threads (`libnvidia-eglcore.so`, every frame of the stack inside the driver, from the thread's start), in 1,597 allocations. No app, Flutter or mpv code is on that stack. So it's NVIDIA-only, not ours to fix in the app; the laptop's run says whether other GPUs do anything like it.
-6. **4K playback levels off (T4, in spirit).** 1,550 MB by 2 minutes, a step up after each seek (mpv keeps the seeked-from range in its cache), flat over the last 5 minutes (1,705 → 1,700). T4 now measures the last 5 minutes (§2): +20 MB, just over, and all of it the step after the minute-15 seek (1,685 → 1,705), then flat for 4½ minutes (1,705 → 1,700). The test now seeks at minutes 5, 10 and 14, so the last 5 minutes have no seek in them. The quality switch dropped to 919 for the moment the old player was gone, then back up within 90 s.
+6. **What trimming leaves is mostly glibc's too, split over its arenas.** `/proc/<pid>/smaps` at each sample of 3 trimmed cycles (snapshots from outside the app, sorted by mapping):
+
+   | MB, smaps | start | playing #1 | trimmed #3 |
+   |---|---|---|---|
+   | glibc's per-thread arenas | 20 | 389 | 118 |
+   | glibc's main heap | 36 | 90 | 69 |
+   | GPU memory mapped in (`/dev/nvidiactl`) | 55 | 184 | 53 |
+   | libraries (NVIDIA, mpv and FFmpeg, the rest) | 262 | 306 | 298 |
+   | Dart heap | 55 | 56 | 54 |
+   | threads | 30 | 50 | 27 |
+
+   About 130 MB stays in glibc's arenas, which trimming can't return: a few live allocations are spread over them. glibc gives busy threads their own arena (up to 8 per core), and mpv has many threads. The GPU memory goes back, no thread is left behind, and +36 MB is library code loaded once. **With `MALLOC_ARENA_MAX=2`**, after trimming: 623, 639, 629 MB (test's RSS) against 672, 696, 725 by default, so ~100 MB less and flat instead of creeping. Peak while playing barely changes (1,286–1,376 against 1,294–1,406). Without the trim, closing is the same either way (~925): the fix needs both. Unmeasured: whether fewer arenas cost playback smoothness (mpv's threads share the allocator's locks).
+7. **4K playback levels off (T4, in spirit).** 1,550 MB by 2 minutes, a step up after each seek (mpv keeps the seeked-from range in its cache), flat over the last 5 minutes (1,705 → 1,700). T4 now measures the last 5 minutes (§2): +20 MB, just over, and all of it the step after the minute-15 seek (1,685 → 1,705), then flat for 4½ minutes (1,705 → 1,700). The test now seeks at minutes 5, 10 and 14, so the last 5 minutes have no seek in them. The quality switch dropped to 919 for the moment the old player was gone, then back up within 90 s.
+8. **The buffer is about 300 MB of the 4K peak, because media_kit uses it twice.** `PlayerConfiguration.bufferSize` sets both mpv's read-ahead (`demuxer-max-bytes`) and its back buffer, what has already played, kept for seeking back (`demuxer-max-back-bytes`; media_kit 1.2.6, `real.dart`). So 192 MB is up to 384 MB, and `cache-on-disk` doesn't keep it out of RAM. 10 minutes of 4K at 64 MB (`*-long-buf64.json`) against 192 (`*-long-run1.json`): 1,227–1,282 MB playing in minutes 2–7 against 1,507–1,566 (−300), and 974 after closing against 1,149. Neither run logged a stall, but 64 MB is only ~15–25 s of 4K read-ahead. So for M2: keep the read-ahead, shrink the back buffer.
 
 Android phone (ExoPlayer):
 - [ ] Cycle test, with `dumpsys meminfo` (Java, native, graphics) per step
@@ -135,8 +148,8 @@ Close the milestone:
 
 ### M2: Fixes (only those M1 justifies)
 - [ ] Leaks found in M1, each fixed, with a test that would catch it again
-- [ ] Linux: give freed memory back after the player closes (`malloc_trim`, via FFI in `media_kit_engine.dart`), if M1 shows it's the allocator
-- [ ] Desktop read-ahead buffer: size it from what M1 shows playback needs
+- [ ] Linux: give freed memory back after the player closes (`malloc_trim`, via FFI in `media_kit_engine.dart`), **and cap glibc's arenas at 2** (`mallopt(M_ARENA_MAX)` at start, or `MALLOC_ARENA_MAX` in AppRun): M1 shows both are needed (finding 6). Re-check 4K smoothness with fewer arenas
+- [ ] Desktop buffer: keep the 192 MB read-ahead, and set mpv's back buffer (`demuxer-max-back-bytes`) on its own, much smaller (~32 MB): media_kit's `bufferSize` sets both (finding 8). Same for the 64 MB on phones and TVs once their runs show it. Re-run the player perf tests
 - [ ] Image cache: a cap for phones and desktop, and a lower one for the TV, if the browse test shows it's needed
 - [ ] Free decoded posters while a video plays (`imageCache.clear()` on opening the player) if it helps phones and TVs without slowing the return to the page
 - [ ] Android: anything ExoPlayer keeps after dispose
