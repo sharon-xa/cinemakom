@@ -23,6 +23,24 @@ Set the real numbers in M1 from what we measure; these are where to start.
 | T4 | **4K playback stays bounded:** over 20 minutes of 4K, RSS rises less than **+20 MB** in the last 5 minutes (each seek steps it up before then, by design) | The long-play test (§4.3) |
 | T5 | **Budgets per device:** while playing 4K, phone and TV stay under the numbers set in M1 (TV.md §9 measured 613 MB on the TCL) | The perf tests (`player_perf_test`, `tv_perf_test`) |
 
+### 2.1 Performance comes first (owner, 2026-11-26)
+
+**No memory saving is worth a slower app.** Every M2 change is measured against the baseline below, on the same device, before it's kept. If any number gets worse beyond the run-to-run noise, the change is reverted or reworked, whatever memory it saves.
+
+| # | Must not get worse | Measured how |
+|---|---|---|
+| P1 | **4K playback:** mpv's dropped and late frames over 60 s of 4K (`frame-drop-count`, `decoder-frame-drop-count`, `vo-delayed-frame-count`); on the TV, `tool/tv_cadence.sh` | The perf baseline (M2, first item) |
+| P2 | **Start and seek:** time from opening to the first frame; a seek inside the buffer stays instant, forward *and back* (the back buffer, finding 8); a seek outside it plays within 2 s (PLAYER.md §1) | The same |
+| P3 | **No stalls:** no rebuffering during 20 minutes of 4K on a normal connection (mpv's `paused-for-cache`) | The long-play run |
+| P4 | **Smooth UI:** frame times with the player's controls up (`player_perf_test`), scrolling (`scroll_perf_test`), the TV's Home and player (`tv_perf_test`) | The existing perf tests |
+| P5 | **Going back is quick:** returning from the player to the page shows its posters without reloading them | Watch it, and the image cache's hits |
+
+How each fix stays off the hot path:
+- **`malloc_trim`** runs only after the player has closed, never while a video plays, and off the UI thread (it can take tens of milliseconds), so no frame waits for it.
+- **The arena cap** is kept only if P1 and P3 stay the same: fewer arenas means mpv's threads share the allocator's locks.
+- **The back buffer** keeps enough for an instant seek back of the usual jumps (−10 s, −30 s); P2 checks it.
+- **Image cache caps** are lowered only if P4 and P5 stay the same: a cap too small re-decodes posters while scrolling back.
+
 ## 3. Suspects (what's known before measuring)
 
 None of these is confirmed. M1 decides which are real.
@@ -146,7 +164,8 @@ Close the milestone:
 - [ ] Write the findings into §3 (confirmed or ruled out) and the targets into §2
 - [ ] Decide which of the M2 items to do, and add any new ones
 
-### M2: Fixes (only those M1 justifies)
+### M2: Fixes (only those M1 justifies, each checked against §2.1)
+- [ ] **The performance baseline first**, before any change, on this PC, the laptop, the phone and the TV: P1–P5 (§2.1). Add mpv's dropped, late and stall counters and the start and seek times to the memory test's samples
 - [ ] Leaks found in M1, each fixed, with a test that would catch it again
 - [ ] Linux: give freed memory back after the player closes (`malloc_trim`, via FFI in `media_kit_engine.dart`), **and cap glibc's arenas at 2** (`mallopt(M_ARENA_MAX)` at start, or `MALLOC_ARENA_MAX` in AppRun): M1 shows both are needed (finding 6). Re-check 4K smoothness with fewer arenas
 - [ ] Desktop buffer: keep the 192 MB read-ahead, and set mpv's back buffer (`demuxer-max-back-bytes`) on its own, much smaller (~32 MB): media_kit's `bufferSize` sets both (finding 8). Same for the 64 MB on phones and TVs once their runs show it. Re-run the player perf tests

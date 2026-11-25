@@ -23,6 +23,11 @@
 // reinstalls the app there, which wipes its data. The driver writes
 // build/memory/<device>-<ui>-<scenario>.json and prints the table
 // (tool/memory_report.dart).
+//
+// Without the driver (the built app run by itself, say on another machine
+// over SSH) it still runs, and prints the report as one `MEMORY_JSON` line:
+// save it as a .json file for tool/memory_report.dart.
+import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:ffi' as ffi;
 import 'dart:io';
@@ -258,6 +263,9 @@ void main() {
         'samples': samples,
       },
     };
+    // For a run without `flutter drive` (another machine over SSH): the
+    // report as one line, for tool/memory_report.dart.
+    stdout.writeln('MEMORY_JSON ${jsonEncode(binding.reportData!['memory'])}');
     heap?.dispose();
   });
 }
