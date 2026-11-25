@@ -111,14 +111,17 @@ void main() {
     /// One sample. [gc] collects Dart's garbage first, so the heap shows
     /// what is really kept.
     Future<void> sample(String label, {bool gc = false}) async {
-      final dart = await heap?.read(gc: gc);
+      // The process first: asking the VM for its allocation profile (the
+      // forced GC) costs it 30–40 MB for a moment.
       final memory = await readMemory();
+      final glibc = _Glibc.instance?.read();
+      final dart = await heap?.read(gc: gc);
       final row = {
         'label': label,
         't_s': clock.elapsed.inSeconds,
         ...memory.toJson(),
         ...?dart,
-        ...?_Glibc.instance?.read(),
+        ...?glibc,
         if (!isAndroid) 'players': MediaKitEngine.livePlayers,
       };
       samples.add(row);

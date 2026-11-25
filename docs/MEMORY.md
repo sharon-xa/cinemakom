@@ -1,6 +1,6 @@
 # Memory: the investigation and fix plan
 
-> **Status (2026-11-25):** M0 done (the measuring tools). M1, the investigation, is under way: this PC's Linux runs, the allocator experiment and heaptrack are done (§5 M1, *Findings so far*); next are the laptop, the phone and the TV. Work through §5 in order and tick each box as it's done, with the date and the numbers. **Read it before changing caches, buffers, or how the player opens and closes.**
+> **Status (2026-11-25):** M0 done (the measuring tools). M1, the investigation, is under way: this PC's Linux runs, the allocator experiment and heaptrack are done (§5 M1, *Findings so far*); the Omarchy laptop's runs are done too; next are the phone and the TV. Work through §5 in order and tick each box as it's done, with the date and the numbers. **Read it before changing caches, buffers, or how the player opens and closes.**
 
 The goal: **memory comes back when a feature is done with it, and stays flat over a long session.** Closing the player returns the app to about what it used before the video. Ten videos in a row use no more than one. Browsing for an hour levels off. This matters most on the weakest devices we support: low-end phones and TVs with 1.5 to 2 GB of RAM, where Android kills the app in the background, or the TV stutters, long before a desktop notices.
 
@@ -110,10 +110,10 @@ Each milestone ends with its numbers written here, and the plan corrected if a s
 
 ### M1: Investigation (every platform, every suspect)
 Linux (this PC, and the Omarchy laptop):
-- [x] Cycle test: before, playing, after each close (T1, T2). This PC *(2026-11-25)*; the Omarchy laptop to do
+- [x] Cycle test: before, playing, after each close (T1, T2). This PC *(2026-11-25)*, the Omarchy laptop *(2026-11-26, finding 9)*
 - [x] Is the after-close memory the allocator? `malloc_trim(0)` experiment (§4.4): **mostly yes**, plus a small real leak *(2026-11-25)*
 - [x] Find the two native growths with heaptrack (below): **no leak per video; the idle jump is NVIDIA's GL driver** *(2026-11-26)*
-- [ ] The idle jump on other GPUs (the laptop), and whether a driver setting stops it here (`__GL_THREADED_OPTIMIZATIONS=0`)
+- [x] The idle jump on other GPUs: **none on the laptop's Intel GPU** (finding 9) *(2026-11-26)*. Optional: whether a driver setting stops it on NVIDIA (`__GL_THREADED_OPTIMIZATIONS=0`)
 - [x] What trimming leaves above start (`/proc/<pid>/smaps` by mapping): **mostly malloc's, split over its arenas**; capping them at 2 keeps it flat *(2026-11-26)*
 - [x] How much of the 4K peak is the 192 MB buffer? Run at 64 MB and compare: **~300 MB**, as media_kit uses it twice (finding 8) *(2026-11-26)*
 - [x] Browse test (T3): the image cache levels off at its cap, 100 MB; something else jumps at idle (below) *(2026-11-25)*
@@ -140,6 +140,9 @@ Linux (this PC, and the Omarchy laptop):
    About 130 MB stays in glibc's arenas, which trimming can't return: a few live allocations are spread over them. glibc gives busy threads their own arena (up to 8 per core), and mpv has many threads. The GPU memory goes back, no thread is left behind, and +36 MB is library code loaded once. **With `MALLOC_ARENA_MAX=2`**, after trimming: 623, 639, 629 MB (test's RSS) against 672, 696, 725 by default, so ~100 MB less and flat instead of creeping. Peak while playing barely changes (1,286–1,376 against 1,294–1,406). Without the trim, closing is the same either way (~925): the fix needs both. Unmeasured: whether fewer arenas cost playback smoothness (mpv's threads share the allocator's locks).
 7. **4K playback levels off (T4, in spirit).** 1,550 MB by 2 minutes, a step up after each seek (mpv keeps the seeked-from range in its cache), flat over the last 5 minutes (1,705 → 1,700). T4 now measures the last 5 minutes (§2): +20 MB, just over, and all of it the step after the minute-15 seek (1,685 → 1,705), then flat for 4½ minutes (1,705 → 1,700). The test now seeks at minutes 5, 10 and 14, so the last 5 minutes have no seek in them. The quality switch dropped to 919 for the moment the old player was gone, then back up within 90 s.
 8. **The buffer is about 300 MB of the 4K peak, because media_kit uses it twice.** `PlayerConfiguration.bufferSize` sets both mpv's read-ahead (`demuxer-max-bytes`) and its back buffer, what has already played, kept for seeking back (`demuxer-max-back-bytes`; media_kit 1.2.6, `real.dart`). So 192 MB is up to 384 MB, and `cache-on-disk` doesn't keep it out of RAM. 10 minutes of 4K at 64 MB (`*-long-buf64.json`) against 192 (`*-long-run1.json`): 1,227–1,282 MB playing in minutes 2–7 against 1,507–1,566 (−300), and 974 after closing against 1,149. Neither run logged a stall, but 64 MB is only ~15–25 s of 4K read-ahead. So for M2: keep the read-ahead, shrink the back buffer.
+
+9. **The Omarchy laptop (Intel UHD, Raptor Lake; the test app built here and run over SSH; `build/memory/omarchy-desktop-*-trim.json`) shows the same, smaller.** Start 327 MB, 721–896 playing 4K (the ~850 in §1), ~690 after each close, and **~420 after trimming** (+93 over start): trimming gives back ~270 MB. Native memory in use returns to ~85 MB after every close (74 at start): no leak. glibc's kept memory grows every video, to 1.5 GB of address space by the 6th (mostly not resident): it spreads over more and more, which is what the arena cap stops. **Idle Home is flat** (377–388 MB for 10 minutes): no jump on Intel, so finding 5 is NVIDIA's alone. Browsing levels off with the image cache at its 100 MB cap.
+10. **A measuring artifact, fixed (2026-11-26).** The samples that force a GC ("closed", the last idle one) read RSS after asking the VM for its allocation profile, which costs it 30–40 MB for a moment: their Dart heap reads 52–56 MB against 24–26 two seconds later. So every "closed" figure above is ~30 MB high, and the laptop's T3 "+44 MB, FAIL" is only that (without it: 377 → 384, a pass). The test now reads the process first.
 
 Android phone (ExoPlayer):
 - [ ] Cycle test, with `dumpsys meminfo` (Java, native, graphics) per step
