@@ -156,7 +156,7 @@ Linux (this PC, and the Omarchy laptop):
 
 14. **The Dart heap keeps nothing (§3.4, ruled out).** Each run's report now lists the classes that grew most from start to end, after a GC (VM service `getAllocationProfile`). After 5 videos the biggest is 154 KB of strings, then lists, records and semantics nodes: under 1 MB in all, the widgets of the screen on show. Likewise after the download.
 15. **Nothing outlives its screen, and the buffers are capped (code read).** Every `.family` provider is `autoDispose`; paged lists stay 5 minutes after nothing shows them (`PagedMediaNotifier.keepFor`), by design, so going back doesn't reload. Every subscription, timer and listener is cancelled by its owner (both engines, `PlayerController`, `HomeHero`, audio focus, the TV screens); the few never cancelled belong to things that live as long as the app (the router, the downloader's updates). `EventLog` keeps 2,000 entries of at most 4,000 characters, and at most 20,000 lines waiting for the disk (a few MB with real lines). The downloads' per-task maps are emptied when a task is forgotten. There is no in-memory API cache.
-16. **A long download: memory rises ~150 MB over 10 minutes and stays after deleting it; and a downloads bug.** RSS 471 → 524 after 30 s, 562 at 2 min, 597 at 5, 628 at 10, 623 after the delete (`*-download-run1.json`). Native (glibc's in-use 72 → 107) and its kept memory, not Dart (heap ~30 MB, external ≤ 10 MB): likely the same arena spread as the player (finding 6), from the downloader's I/O; the M2 trim and arena cap should cover it, and a longer run checks whether it levels off. **The bug (DOWNLOADS.md, not memory):** the 3.3 GB 1080p file fails at 3,497,897,687 of 3,524,544,162 bytes (99.2%), at the same byte every time, and the retry **starts over from 0** instead of resuming: three times in 10 minutes. The activity log doesn't say why. The downloads tests only use a 50 MB file.
+16. **A long download costs ~40–50 MB while it runs, and keeps about that.** The 3.3 GB 1080p file (`*-download.json`) took 2 min 7 s: RSS 498 at start, 533–548 downloading, 546–581 over the next 7 idle minutes, 575 after deleting it. Native (glibc's in-use 47 → 70–77), not Dart (heap ~30 MB, external ≤ 7 MB while downloading). Small, and the M2 trim covers it. *A first run (`*-download-run1.json`) climbed +150 MB because the download restarted three times: the test gave the downloader a relative folder, which it reads from `/`, so every finishing copy failed and the retry started over from 0. Fixed in the test; the library behaviour behind it is in DOWNLOADS.md §3.7.*
 
 Android phone (ExoPlayer):
 - [x] Cycle test, with Java, native and graphics per step (`Debug.MemoryInfo`): closing gives nothing back until Java collects its garbage (finding 11) *(2026-11-26)*
@@ -175,7 +175,7 @@ Dart side, on any platform:
 - [x] What grew in the Dart heap, by class, from start to the end of a run (every run's report now lists it): **under 1 MB** (finding 14) *(2026-11-26)*
 - [x] Providers, listeners and timers that outlive their screen (§3.4): **none** (finding 15) *(2026-11-26)*
 - [x] EventLog and other buffers are capped: **yes** (finding 15) *(2026-11-26)*
-- [x] A long download: memory over 10 minutes (§3.5): rises ~150 MB, native; and a downloads bug (finding 16) *(2026-11-26)*
+- [x] A long download: memory over 10 minutes (§3.5): ~40–50 MB, and an edge case for DOWNLOADS.md §3.7 (finding 16) *(2026-11-26)*
 
 Close the milestone:
 - [ ] Write the findings into §3 (confirmed or ruled out) and the targets into §2

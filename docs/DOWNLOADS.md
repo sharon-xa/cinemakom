@@ -68,6 +68,12 @@ One global configuration (`configureNotification`, `background_file_downloader.d
 - **Resume data after final `failed` (D3 check):** verified in `background_downloader-9.6.6/lib/src/base_downloader.dart` (`processStatusUpdate`): `_clearPauseResumeInfo` is called unconditionally on `update.status.isFinalState` before emitting the update, with no opt-out flag. Keeping network trouble from becoming final (`retries: 10` + connectivity pause on offline) plus honest `startedOver` restart is the intended design (§5.5).
 - **Android notification buttons (D6 check):** `background_downloader` localizes Pause/Resume/Cancel via `bg_downloader_pause` / `bg_downloader_resume` / `bg_downloader_cancel` string resources (`values/strings.xml` and `values-ar/strings.xml`), and supports `{progress}`, `{networkSpeed}`, `{timeRemaining}` in `Notifications.kt`.
 
+### 3.7 A failed finishing copy starts the whole file over *(2026-11-26, found by the memory test)*
+
+On desktop, once the bytes are in, background_downloader copies the temp file into place (`download_isolate.dart`, `File(temp).copySync(filePath)`). If that copy throws, the task counts as failed **with resume data for a temp file that is already complete**. The library's retry then asks for the range past the end, which the server refuses, and the download **starts over from 0**: up to 10 times (`retries: 10`), each a full download. Seen with a 3.3 GB 1080p file and a destination the app couldn't create (the memory test's mistake: a relative folder, which the downloader reads from `/`); each failure looked like `running -> queued` at 99%, and the error is only in the library's own log (debug builds: `PathAccessException … Permission denied`). Nothing in the app reports it: the retry's status update carries no exception.
+
+How a user could hit it: the destination stops being writable, or the disk fills up between the start's free-space check (which counts the copy, `needsCopy`) and the finish. Both are rare on desktop, where the temp file sits in the destination's `.partial` folder. Not fixed yet. A fix would stop retrying a task whose temp file is already its full size (finish it from the temp file, or fail it as *can't write* with **Retry**), and test it on Linux with a destination made read-only near the end.
+
 ## 4. The rules (what must always be true)
 
 These are the contract. Each one gets a test (§9).

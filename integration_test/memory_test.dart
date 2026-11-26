@@ -8,8 +8,10 @@
 //   browse  Home three times, 3 genre pages scrolled far, 10 titles, then
 //           IDLE_MINUTES idle. Does browsing level off (T3)?
 //   long    LONG_MINUTES of 4K with seeks and a quality switch (T4).
-//   download  DOWNLOAD_MINUTES of a 1080p download (into build/memory on
-//           desktop, an in-memory database), then deleted (§3.5).
+//   download  a 1080p download (into build/memory on desktop, an in-memory
+//           database), sampled for DOWNLOAD_MINUTES (it finishes in a few
+//           on a fast connection, and the rest shows what it keeps), then
+//           deleted (§3.5).
 //
 // Every run also lists the Dart classes whose instances grew most from
 // start to end (`classes` in the report).
@@ -120,8 +122,10 @@ void main() {
     }
     final heap = await _DartHeap.connect();
     // Desktop: under build/, not the temp folder (RAM on many Linuxes).
+    // Absolute: the downloader reads a relative folder from `/`.
     final downloadDir = isDesktop
-        ? (Directory('build/memory/download')..createSync(recursive: true))
+        ? (Directory('build/memory/download').absolute
+            ..createSync(recursive: true))
         : Directory.systemTemp.createTempSync('cinemakom-memory');
     final downloadDb = AppDatabase(NativeDatabase.memory());
     addTearDown(() async {
