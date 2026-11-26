@@ -8,6 +8,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path/path.dart' as p;
 
 import '../platform/app_dirs.dart';
+import '../platform/native_heap.dart';
 import '../platform/platform_info.dart';
 import 'player_engine.dart';
 import 'subtitle_fonts.dart';
@@ -187,6 +188,8 @@ class MediaKitEngine implements PlayerEngine {
     if (existing != null && !fresh) return existing;
     if (existing != null) await _release(existing);
     if (_disposed) return null;
+    // A trim still waiting from the last close would run during this video.
+    NativeHeap.cancel();
 
     final player = Player(
       configuration: PlayerConfiguration(
@@ -424,7 +427,12 @@ class MediaKitEngine implements PlayerEngine {
     if (_disposed) return;
     _disposed = true;
     final player = _player;
-    if (player != null) await _release(player);
+    if (player != null) {
+      await _release(player);
+      // Linux: glibc keeps what mpv freed; give it back once no player is
+      // open (docs/MEMORY.md M2, fix 1).
+      NativeHeap.trimSoon(stillIdle: () => _livePlayers == 0);
+    }
     _video.dispose();
     for (final c in [
       _position,

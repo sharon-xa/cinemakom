@@ -53,6 +53,7 @@ import 'package:cinemakom/app/widgets/poster_card.dart';
 import 'package:cinemakom/core/diagnostics/event_log.dart';
 import 'package:cinemakom/core/diagnostics/memory.dart';
 import 'package:cinemakom/core/network/api_endpoints.dart';
+import 'package:cinemakom/core/platform/app_dirs.dart';
 import 'package:cinemakom/core/platform/app_info.dart';
 import 'package:cinemakom/core/platform/platform_info.dart';
 import 'package:cinemakom/core/player/media_kit_engine.dart';
@@ -88,6 +89,7 @@ const longMinutes = int.fromEnvironment('LONG_MINUTES', defaultValue: 20);
 const idleMinutes = int.fromEnvironment('IDLE_MINUTES', defaultValue: 10);
 const quality = int.fromEnvironment('MEMORY_QUALITY', defaultValue: 2160);
 const trim = bool.fromEnvironment('MEMORY_TRIM');
+const appDirs = bool.fromEnvironment('MEMORY_APP_DIRS', defaultValue: true);
 const perfRounds = int.fromEnvironment('PERF_ROUNDS', defaultValue: 3);
 const downloadMinutes = int.fromEnvironment(
   'DOWNLOAD_MINUTES',
@@ -133,6 +135,23 @@ void main() {
         ? (Directory('build/memory/download').absolute
             ..createSync(recursive: true))
         : Directory.systemTemp.createTempSync('cinemakom-memory');
+    // Desktop: the app's folders on disk, as `initAppDirs` gives the real
+    // app. Without them mpv's disk cache goes to the temp folder (tmpfs on
+    // this PC), and the posters' disk cache to the package's default.
+    // MEMORY_APP_DIRS=false leaves them unset, as the test ran before
+    // 2026-11-26 (the cache in the temp folder), to compare.
+    if (isDesktop && appDirs) {
+      final root = Directory('build/memory/appdirs').absolute.path;
+      String dir(String name) =>
+          (Directory('$root/$name')..createSync(recursive: true)).path;
+      AppDirs.debugCurrent = AppDirs(
+        data: dir('data'),
+        cache: dir('cache'),
+        state: dir('state'),
+        videos: dir('videos'),
+      );
+      addTearDown(() => AppDirs.debugCurrent = null);
+    }
     final downloadDb = AppDatabase(NativeDatabase.memory());
     addTearDown(() async {
       await downloadDb.close();
@@ -488,6 +507,12 @@ void main() {
         if (perf.isNotEmpty) 'perf': perf,
         if (classesAtStart != null && classesAtEnd != null)
           'classes': _grown(classesAtStart, classesAtEnd),
+        // The app's own memory lines (MemoryLog, and what each trim after a
+        // close gave back: NativeHeap).
+        'log': [
+          for (final e in EventLog.instance.recent)
+            if (e.tag == 'memory') e.format(),
+        ],
       },
     };
     // For a run without `flutter drive` (another machine over SSH): the

@@ -115,6 +115,13 @@ String report(Map<String, dynamic> run) {
       );
     }
   }
+  final log = (run['log'] as List?)?.cast<String>();
+  if (log != null && log.isNotEmpty) {
+    out.writeln("The app's memory log:");
+    for (final line in log) {
+      out.writeln('  $line');
+    }
+  }
   return out.toString();
 }
 
