@@ -189,7 +189,7 @@ Close the milestone:
 - [ ] Decide which of the M2 items to do, and add any new ones
 
 ### M2: Fixes (only those M1 justifies, each checked against §2.1)
-- [ ] **The performance baseline first**, before any change, on this PC, the laptop, the phone and the TV: P1–P5 (§2.1). Measured by the memory test's `perf` scenario (`PlayerEngine.frameStats`, stall watch, timed open, seeks and return) and the perf tests. This PC and the laptop done *(2026-11-26)*; the phone and the TV to do
+- [ ] **The performance baseline first**, before any change, on this PC, the laptop, the phone and the TV: P1–P5 (§2.1). Measured by the memory test's `perf` scenario (`PlayerEngine.frameStats`, stall watch, timed open, seeks and return) and the perf tests. This PC, the laptop and the phone done *(2026-11-26)*; the TV to do
 
   *The baseline (before M2; medians of 3 rounds; 4K Endgame; times in ms):*
 
@@ -197,6 +197,7 @@ Close the milestone:
   |---|---|---|---|---|---|---|---|---|
   | This PC (NVIDIA) | 1,341 | 105 | 574 | 475 | 520 | 101 | 0 / 0 | 0 |
   | Omarchy laptop (Intel) | 1,820 | 157 | 368 | 416 | 585 | 102 | 0 / 0 | 0 |
+  | Phone (CPH2423, ExoPlayer) | 3,847 | 1,081 | 2,007 | 1,491 | 1,344 | 100 | – | 0 |
 
   *start*: opening to playing. *Seeks*: until it plays from the new place (only −10 s is near-instant: the others are mpv decoding from a keyframe, so the back buffer matters for −10 s most). *return*: closing until the page's images are drawn; 100 ms is the measurement's floor, so nothing was re-decoded. Runs: `build/memory/*-perf.json`.
 
@@ -210,6 +211,20 @@ Close the milestone:
   | quality menu | 0.33 / 1.60 | 6.2 / 32.9 / 36.2 | 17.3% |
 
   The raster thread's p90 of ~34 ms over 4K is today's state on this PC (NVIDIA): a fix must not raise it. `scroll_perf_test` runs on the phone only (its layout).
+
+  *UI frame times, the phone* (`player_perf_test` and `scroll_perf_test`, `build/memory/baseline-phone-*.json`; 120 Hz, 8.3 ms budget):
+
+  | Scene | UI p90 / p99 | raster p90 / p99 | over budget (UI, raster) |
+  |---|---|---|---|
+  | 4K, controls up | 0.80 / 2.58 | 5.36 / 7.22 | 0.3%, 0.3% |
+  | controls fading | 1.98 / 5.03 | 5.30 / 7.42 | 0%, 0.2% |
+  | scrubbing with previews | 0.76 / 0.97 | 3.89 / 4.53 | 0%, 0% |
+  | quality menu | 1.88 / 7.23 | 4.88 / 6.60 | 0.6%, 0.1% |
+  | Home scrolling | 2.68 / 8.95 | 4.97 / 6.99 | 2.0%, 0.4% |
+  | a grid flung deep | 2.08 / 4.65 | 5.34 / 6.65 | 0.1%, 0.1% |
+  | a title opened and closed | 1.28 / 9.03 | 5.05 / 6.79 | 1.3%, 0.3% |
+
+  *The phone's video itself (P1):* video_player doesn't report ExoPlayer's dropped frames, and this phone's Android records no freeze or judder metrics for a decoder session (`dumpsys media.metrics` has only the basics: 24 fps, one flush per seek). `tool/tv_cadence.sh` doesn't help in the test build, which draws every frame. So on the phone P1 is the stall count (0), the frame times above, and the owner's eye, as in PLAYER.md §13. The phone's seeks are slower than desktop's (ExoPlayer re-buffers from the new place): −30 s at ~2 s is right at PLAYER.md §1's target.
 - [ ] Leaks found in M1, each fixed, with a test that would catch it again
 - [ ] Linux: give freed memory back after the player closes (`malloc_trim`, via FFI in `media_kit_engine.dart`), **and cap glibc's arenas at 2** (`mallopt(M_ARENA_MAX)` at start, or `MALLOC_ARENA_MAX` in AppRun): M1 shows both are needed (finding 6). Re-check 4K smoothness with fewer arenas
 - [ ] Desktop buffer: keep the 192 MB read-ahead, and set mpv's back buffer (`demuxer-max-back-bytes`) on its own, much smaller (~32 MB): media_kit's `bufferSize` sets both (finding 8). Same for the 64 MB on phones and TVs once their runs show it. Re-run the player perf tests
