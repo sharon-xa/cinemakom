@@ -14,7 +14,7 @@ The goal: **memory comes back when a feature is done with it, and stays flat ove
 ## 2. What "fixed" means (targets)
 
 The numbers were set before measuring; M1 (§5) keeps them. Where each stands now:
-- **T1** fails everywhere: +287 MB (laptop), +423 (this PC), +249 (phone) over start after the first close. With M2's fixes the experiments reached +93 (laptop, trim alone), ~+60 (this PC, trim and arena cap), +98 (phone, a Java GC). So T1 is reachable on the phone and close on desktop; the 4K back buffer (M2) should close the rest.
+- **T1** fails everywhere: +287 MB (laptop), +423 (this PC), +249 (phone) over start after the first close. With M2's fixes the experiments reached +93 (laptop, trim alone), +69 to +85 (this PC, trim and arena cap), +98 (phone, a Java GC). So T1 is reachable on the phone and close on desktop; the 4K back buffer (M2) should close the rest.
 - **T2** passes once memory levels off (by the 5th video); measured over 10 videos it fails only from the first videos' climb. It becomes a real check once T1 holds.
 - **T3** passes on Intel and the phone; on this PC only NVIDIA's driver breaks it (finding 5).
 - **T4** passes on the phone, and on desktop after the last seek.
