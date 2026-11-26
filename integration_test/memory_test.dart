@@ -75,6 +75,7 @@ import 'package:cinemakom/main.dart' show noRetry;
 import 'package:cinemakom/tv/tv_app.dart';
 import 'package:cinemakom/tv/tv_router.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -444,7 +445,12 @@ void main() {
       case 'perf':
         for (var r = 1; r <= perfRounds; r++) {
           final startMs = await openPlayer();
-          await wait(const Duration(seconds: 60));
+          await wait(const Duration(seconds: 5));
+          // P4 while the video plays: Flutter's own frame timings (build and
+          // raster), from 5 s after the start to the end of the minute.
+          final timings = _FrameTimes()..start();
+          await wait(const Duration(seconds: 55));
+          final ui = timings.stop();
           await sample('playing #$r (${player().quality?.label})');
           final seeks = {
             'seek_back_10s_ms': await timedSeek(const Duration(seconds: -10)),
@@ -463,6 +469,7 @@ void main() {
             ...seeks,
             'return_ms': returnMs,
             ...frames,
+            ...ui,
             'stalls': stalls,
             'stall_ms': stallMs,
             if (ab == 'give_back') 'ab': r.isEven ? 'on' : 'off',
@@ -744,6 +751,40 @@ List<Map<String, Object>> _grown(
         'kb_grown': (r.bytes / 1024).round(),
       },
   ];
+}
+
+/// Flutter's frame timings while they're collected ([start] to [stop]):
+/// the UI and raster threads' time per frame, in ms, as percentiles, and
+/// the frames over 16.7 ms (60 Hz) on the raster thread.
+class _FrameTimes {
+  final _build = <int>[];
+  final _raster = <int>[];
+
+  void _add(List<FrameTiming> timings) {
+    for (final t in timings) {
+      _build.add(t.buildDuration.inMicroseconds);
+      _raster.add(t.rasterDuration.inMicroseconds);
+    }
+  }
+
+  void start() => SchedulerBinding.instance.addTimingsCallback(_add);
+
+  Map<String, Object?> stop() {
+    SchedulerBinding.instance.removeTimingsCallback(_add);
+    if (_raster.isEmpty) return const {};
+    double at(List<int> sorted, double q) =>
+        (sorted[((sorted.length - 1) * q).round()] / 100).round() / 10;
+    final build = [..._build]..sort();
+    final raster = [..._raster]..sort();
+    return {
+      'frames': raster.length,
+      'ui_p90_ms': at(build, .9),
+      'raster_p50_ms': at(raster, .5),
+      'raster_p90_ms': at(raster, .9),
+      'raster_p99_ms': at(raster, .99),
+      'raster_over_16ms': raster.where((us) => us > 16667).length,
+    };
+  }
 }
 
 /// glibc's allocator (Linux), through FFI: `null` elsewhere (Android has

@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path/path.dart' as p;
 
+import '../diagnostics/event_log.dart';
 import '../platform/app_dirs.dart';
 import '../platform/freed_memory.dart';
 import '../platform/platform_info.dart';
@@ -419,7 +420,41 @@ class MediaKitEngine implements PlayerEngine {
     _height = height;
     if (width != null && height != null && width > 0 && height > 0) {
       _aspectRatio.add(width / height);
+      if (_decoderLoggedFor != _openId) {
+        _decoderLoggedFor = _openId;
+        unawaited(_logDecoder(width, height));
+      }
     }
+  }
+
+  /// The open for which [_logDecoder] ran: once per file.
+  int _decoderLoggedFor = -1;
+
+  /// The decoder mpv picked for the file, in the flight recorder: hardware
+  /// (`vaapi`, `nvdec`, `d3d11va`…), a copy back to memory (`…-copy`), or
+  /// software (`no`). A 4K file in software is the first suspect when
+  /// playback or the controls aren't smooth.
+  Future<void> _logDecoder(int width, int height) async {
+    final player = _player;
+    if (player == null || _disposed) return;
+    final native = player.platform! as NativePlayer;
+    Future<String> read(String name) async {
+      try {
+        return await native.getProperty(name);
+      } on Object {
+        return '?';
+      }
+    }
+
+    // The decoder settles a moment after the size is known.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (_disposed || !identical(_player, player)) return;
+    final hwdec = await read('hwdec-current');
+    final codec = await read('video-format');
+    logEvent(
+      'player',
+      'decoder ${hwdec.isEmpty ? 'no' : hwdec} · $codec $width×$height',
+    );
   }
 
   @override

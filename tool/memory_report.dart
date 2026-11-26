@@ -216,19 +216,24 @@ String _perfTable(List<Map<String, dynamic>> rounds) {
     ('dec.drop', 'decoder_dropped'),
     ('late', 'late'),
     ('stalls', 'stalls'),
+    ('raster p50', 'raster_p50_ms'),
+    ('p90', 'raster_p90_ms'),
+    ('p99', 'raster_p99_ms'),
+    ('>16ms', 'raster_over_16ms'),
+    ('frames', 'frames'),
   ];
   String cell(Object? v) => v?.toString() ?? '–';
-  int? median(String key) {
-    final v = [for (final r in rounds) ?(r[key] as int?)]..sort();
+  num? median(String key) {
+    final v = [for (final r in rounds) ?(r[key] as num?)]..sort();
     return v.isEmpty ? null : v[v.length ~/ 2];
   }
 
   // A with-and-without run (MEMORY_AB): each side's median too.
   final sides = {for (final r in rounds) ?(r['ab'] as String?)};
-  int? sideMedian(String side, String key) {
+  num? sideMedian(String side, String key) {
     final v = [
       for (final r in rounds)
-        if (r['ab'] == side) ?(r[key] as int?),
+        if (r['ab'] == side) ?(r[key] as num?),
     ]..sort();
     return v.isEmpty ? null : v[v.length ~/ 2];
   }
@@ -251,7 +256,8 @@ String _perfTable(List<Map<String, dynamic>> rounds) {
   final out = StringBuffer(
     'Performance (P1-P5): times in ms (start: to the first frame; seeks: '
     'until it plays from there; return: the page\'s images back), frames '
-    'since the file opened:\n',
+    'since the file opened; raster: Flutter\'s raster thread per frame over '
+    'the minute of playback, in ms:\n',
   );
   for (final r in rows) {
     out.writeln(
