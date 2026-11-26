@@ -48,7 +48,8 @@ String report(Map<String, dynamic> run) {
   final out = StringBuffer()
     ..writeln(
       '${run['device']} · ${run['ui']} · ${run['scenario']} · '
-      '${run['version']} · ${run['quality']}p',
+      '${run['version']} · ${run['quality']}p'
+      '${run['arenas'] == null ? '' : ' · glibc arenas ${run['arenas']}'}',
     );
   final android = samples.any((s) => s['android_mb'] != null);
   final columns = <(String, Object? Function(Map<String, Object?>))>[

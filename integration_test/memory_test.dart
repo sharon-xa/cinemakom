@@ -12,6 +12,10 @@
 //           +10 s and +5 min, play 30 s, close. The performance baseline
 //           (§2.1): time to the first frame, each seek's time, frames
 //           dropped and late, stalls, and the return to the page.
+//   starts  STARTS times: open 4K, play 5 s, close, wait 12 s. Only the
+//           time to the first frame and the return to the page, with
+//           enough rounds to tell a change in start from the network's
+//           noise (perf has 3).
 //   download  a 1080p download (into build/memory on desktop, an in-memory
 //           database), sampled for DOWNLOAD_MINUTES (it finishes in a few
 //           on a fast connection, and the rest shows what it keeps), then
@@ -99,6 +103,7 @@ const appDirs = bool.fromEnvironment('MEMORY_APP_DIRS', defaultValue: true);
 /// so it also touches the next round's start.
 const ab = String.fromEnvironment('MEMORY_AB');
 const perfRounds = int.fromEnvironment('PERF_ROUNDS', defaultValue: 3);
+const startRounds = int.fromEnvironment('STARTS', defaultValue: 10);
 const downloadMinutes = int.fromEnvironment(
   'DOWNLOAD_MINUTES',
   defaultValue: 10,
@@ -504,10 +509,28 @@ void main() {
         await tester.runAsync(() => repo.delete(request.videoId));
         await wait(afterClose);
         await sample('deleted', gc: true);
+      case 'starts':
+        for (var r = 1; r <= startRounds; r++) {
+          final startMs = await openPlayer();
+          await wait(const Duration(seconds: 5));
+          if (ab == 'give_back') FreedMemory.debugEnabled = r.isEven;
+          final returnMs = await closePlayer();
+          perf.add({
+            'round': r,
+            'start_ms': startMs,
+            'return_ms': returnMs,
+            'stalls': stalls,
+            if (ab == 'give_back') 'ab': r.isEven ? 'on' : 'off',
+          });
+          debugPrint('start #$r: ${perf.last}');
+          // Past FreedMemory's give-back, so the next open doesn't race it.
+          await wait(const Duration(seconds: 12));
+        }
+        await sample('closed', gc: true);
       default:
         fail(
           'unknown MEMORY_SCENARIO "$scenario" '
-          '(cycle, browse, long, perf, download)',
+          '(cycle, browse, long, perf, starts, download)',
         );
     }
 
@@ -520,6 +543,10 @@ void main() {
         'ui': tv ? 'tv' : (isDesktop ? 'desktop' : 'phone'),
         'version': info.version,
         'quality': quality,
+        // Linux: glibc's arena limit, the runner's 2 unless the environment
+        // set one (docs/MEMORY.md M2, fix 4).
+        if (Platform.isLinux)
+          'arenas': Platform.environment['MALLOC_ARENA_MAX'] ?? '2 (runner)',
         'samples': samples,
         if (perf.isNotEmpty) 'perf': perf,
         if (classesAtStart != null && classesAtEnd != null)
