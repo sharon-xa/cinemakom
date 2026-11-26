@@ -81,12 +81,14 @@ open class MainActivity : FlutterActivity() {
                 "memoryStats" -> result.success(
                     Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }.memoryStats,
                 )
-                // The memory test only (docs/MEMORY.md §4.4): what Java keeps
-                // once its garbage is collected. The app never calls it.
-                "collectGarbage" -> {
+                // Once after the player closed, for ExoPlayer's buffer
+                // (docs/MEMORY.md M2, fix 2), and in the memory test. On a
+                // thread of its own: a collection can take tens of
+                // milliseconds, and the main thread runs the platform views.
+                "collectGarbage" -> Thread({
                     Runtime.getRuntime().gc()
-                    result.success(null)
-                }
+                    runOnUiThread { result.success(null) }
+                }, "cinemakom-gc").start()
                 "publicMoviesDir" -> result.success(
                     try {
                         @Suppress("DEPRECATION")

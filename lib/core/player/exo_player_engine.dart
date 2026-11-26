@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:video_player/video_player.dart';
 
+import '../platform/freed_memory.dart';
 import 'player_engine.dart';
 
 /// [PlayerEngine] on Android's ExoPlayer (through video_player). The only
@@ -23,7 +24,9 @@ import 'player_engine.dart';
 /// shared headers), parsed here and sent as text for the Flutter layer.
 /// Styled ASS needs libass, so it isn't offered ([supportsStyledSubtitles]).
 class ExoPlayerEngine implements PlayerEngine {
-  ExoPlayerEngine({required this.loadText});
+  ExoPlayerEngine({required this.loadText}) {
+    FreedMemory.engineOpened();
+  }
 
   /// Downloads a subtitle file (`ApiClient.fetchText`).
   final Future<String> Function(String url) loadText;
@@ -354,7 +357,11 @@ class ExoPlayerEngine implements PlayerEngine {
     if (_disposed) return;
     _disposed = true;
     _openId++;
+    final played = _controller.value != null;
     await _release();
+    // ExoPlayer's buffer waits for a Java garbage collection after closing
+    // (docs/MEMORY.md M2, fix 2).
+    FreedMemory.engineClosed(played: played);
     _controller.dispose();
     for (final c in [
       _position,

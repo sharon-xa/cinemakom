@@ -55,6 +55,7 @@ import 'package:cinemakom/core/diagnostics/memory.dart';
 import 'package:cinemakom/core/network/api_endpoints.dart';
 import 'package:cinemakom/core/platform/app_dirs.dart';
 import 'package:cinemakom/core/platform/app_info.dart';
+import 'package:cinemakom/core/platform/freed_memory.dart';
 import 'package:cinemakom/core/platform/platform_info.dart';
 import 'package:cinemakom/core/player/media_kit_engine.dart';
 import 'package:cinemakom/core/storage/database.dart';
@@ -90,6 +91,13 @@ const idleMinutes = int.fromEnvironment('IDLE_MINUTES', defaultValue: 10);
 const quality = int.fromEnvironment('MEMORY_QUALITY', defaultValue: 2160);
 const trim = bool.fromEnvironment('MEMORY_TRIM');
 const appDirs = bool.fromEnvironment('MEMORY_APP_DIRS', defaultValue: true);
+
+/// `give_back`: the perf scenario turns FreedMemory off for odd rounds and
+/// on for even ones, so with and without come from one install and the
+/// same minutes of network (PERF_ROUNDS=6 gives three of each). Each
+/// round's row says which (`ab`). The setting is for that round's close,
+/// so it also touches the next round's start.
+const ab = String.fromEnvironment('MEMORY_AB');
 const perfRounds = int.fromEnvironment('PERF_ROUNDS', defaultValue: 3);
 const downloadMinutes = int.fromEnvironment(
   'DOWNLOAD_MINUTES',
@@ -442,6 +450,7 @@ void main() {
           await wait(const Duration(seconds: 30));
           await sample('after seeks #$r');
           final frames = await live?.engine.frameStats() ?? const {};
+          if (ab == 'give_back') FreedMemory.debugEnabled = r.isEven;
           final returnMs = await closePlayer();
           perf.add({
             'round': r,
@@ -451,6 +460,7 @@ void main() {
             ...frames,
             'stalls': stalls,
             'stall_ms': stallMs,
+            if (ab == 'give_back') 'ab': r.isEven ? 'on' : 'off',
           });
           debugPrint('perf #$r: ${perf.last}');
           await wait(const Duration(seconds: 10));
@@ -515,7 +525,7 @@ void main() {
         if (classesAtStart != null && classesAtEnd != null)
           'classes': _grown(classesAtStart, classesAtEnd),
         // The app's own memory lines (MemoryLog, and what each trim after a
-        // close gave back: NativeHeap).
+        // close gave back: FreedMemory).
         'log': [
           for (final e in EventLog.instance.recent)
             if (e.tag == 'memory') e.format(),

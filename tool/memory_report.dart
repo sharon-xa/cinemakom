@@ -222,11 +222,26 @@ String _perfTable(List<Map<String, dynamic>> rounds) {
     return v.isEmpty ? null : v[v.length ~/ 2];
   }
 
+  // A with-and-without run (MEMORY_AB): each side's median too.
+  final sides = {for (final r in rounds) ?(r['ab'] as String?)};
+  int? sideMedian(String side, String key) {
+    final v = [
+      for (final r in rounds)
+        if (r['ab'] == side) ?(r[key] as int?),
+    ]..sort();
+    return v.isEmpty ? null : v[v.length ~/ 2];
+  }
+
   final rows = [
     ['', for (final c in columns) c.$1],
     for (final r in rounds)
-      ['#${r['round']}', for (final c in columns) cell(r[c.$2])],
+      [
+        '#${r['round']}${r['ab'] == null ? '' : ' ${r['ab']}'}',
+        for (final c in columns) cell(r[c.$2]),
+      ],
     ['median', for (final c in columns) cell(median(c.$2))],
+    for (final side in sides)
+      ['median $side', for (final c in columns) cell(sideMedian(side, c.$2))],
   ];
   final widths = [
     for (var i = 0; i < rows.first.length; i++)

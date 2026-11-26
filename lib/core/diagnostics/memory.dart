@@ -142,10 +142,10 @@ Future<Map<String, int>> _androidMemory() async {
   }
 }
 
-/// The memory test only: Android collects Java's garbage (the platform
-/// side of `malloc_trim` on Linux, docs/MEMORY.md §4.4). The app never
-/// calls it: Android decides when to collect.
-@visibleForTesting
+/// Android collects Java's garbage, on a background thread (the platform
+/// side of `malloc_trim` on Linux, docs/MEMORY.md §4.4). Only after the
+/// player closed (`FreedMemory`) and in the memory test: otherwise Android
+/// decides when to collect.
 Future<void> collectJavaGarbage() async {
   try {
     await _platform
