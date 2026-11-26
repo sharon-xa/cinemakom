@@ -8,6 +8,10 @@
 //   browse  Home three times, 3 genre pages scrolled far, 10 titles, then
 //           IDLE_MINUTES idle. Does browsing level off (T3)?
 //   long    LONG_MINUTES of 4K with seeks and a quality switch (T4).
+//   perf    PERF_ROUNDS times: open 4K, play 60 s, seek −10 s, −30 s,
+//           +10 s and +5 min, play 30 s, close. The performance baseline
+//           (§2.1): time to the first frame, each seek's time, frames
+//           dropped and late, stalls, and the return to the page.
 //   download  a 1080p download (into build/memory on desktop, an in-memory
 //           database), sampled for DOWNLOAD_MINUTES (it finishes in a few
 //           on a fast connection, and the rest shows what it keeps), then
@@ -35,6 +39,7 @@
 // Without the driver (the built app run by itself, say on another machine
 // over SSH) it still runs, and prints the report as one `MEMORY_JSON` line:
 // save it as a .json file for tool/memory_report.dart.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:ffi' as ffi;
@@ -83,6 +88,7 @@ const longMinutes = int.fromEnvironment('LONG_MINUTES', defaultValue: 20);
 const idleMinutes = int.fromEnvironment('IDLE_MINUTES', defaultValue: 10);
 const quality = int.fromEnvironment('MEMORY_QUALITY', defaultValue: 2160);
 const trim = bool.fromEnvironment('MEMORY_TRIM');
+const perfRounds = int.fromEnvironment('PERF_ROUNDS', defaultValue: 3);
 const downloadMinutes = int.fromEnvironment(
   'DOWNLOAD_MINUTES',
   defaultValue: 10,
@@ -133,6 +139,43 @@ void main() {
       if (downloadDir.existsSync()) downloadDir.deleteSync(recursive: true);
     });
     final clock = Stopwatch()..start();
+
+    /// The open player's controller (null while none is open), for its
+    /// frame counters and the stall watch.
+    PlayerController? live;
+
+    /// Stalls (P3): rebuffering while playing, outside the few seconds a
+    /// seek, an open or a quality switch is allowed (they rebuffer by
+    /// design). Polled, as the controller's state is.
+    var stalls = 0;
+    var stallMs = 0;
+    var quietUntil = DateTime.now();
+    DateTime? stalledAt;
+    void quiet([Duration d = const Duration(seconds: 6)]) =>
+        quietUntil = DateTime.now().add(d);
+    final stallWatch = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      final PlayerState st;
+      try {
+        st = live!.state;
+      } on Object {
+        // No player open, or it was just disposed.
+        stalledAt = null;
+        return;
+      }
+      final now = DateTime.now();
+      final stalled =
+          st.phase == PlayerPhase.ready &&
+          st.buffering &&
+          now.isAfter(quietUntil);
+      if (stalled && stalledAt == null) {
+        stalledAt = now;
+        stalls++;
+      } else if (!stalled && stalledAt != null) {
+        stallMs += now.difference(stalledAt!).inMilliseconds;
+        stalledAt = null;
+      }
+    });
+    addTearDown(stallWatch.cancel);
     final samples = <Map<String, Object?>>[];
 
     /// One sample. [gc] collects Dart's garbage first, so the heap shows
@@ -143,12 +186,15 @@ void main() {
       final memory = await readMemory();
       final glibc = _Glibc.instance?.read();
       final dart = await heap?.read(gc: gc);
+      final frames = await live?.engine.frameStats();
       final row = {
         'label': label,
         't_s': clock.elapsed.inSeconds,
         ...memory.toJson(),
         ...?dart,
         ...?glibc,
+        ...?frames,
+        if (frames != null) ...{'stalls': stalls, 'stall_ms': stallMs},
         if (!isAndroid) 'players': MediaKitEngine.livePlayers,
       };
       samples.add(row);
@@ -210,16 +256,73 @@ void main() {
     final classesAtStart = await heap?.classes();
 
     PlayerState player() => container.read(playerControllerProvider(request));
-    Future<void> openPlayer() async {
+
+    /// Opens the player and waits for it to play; returns how long that
+    /// took (P2: time to the first frame).
+    Future<int> openPlayer() async {
+      final started = DateTime.now();
+      quiet(const Duration(seconds: 60));
       router.push('${AppRoutes.watch}/${request.videoId}', extra: request);
       final end = DateTime.now().add(const Duration(seconds: 60));
       while (!(player().phase == PlayerPhase.ready && player().playing)) {
         if (DateTime.now().isAfter(end)) fail('the video never played');
-        await wait(const Duration(milliseconds: 200));
+        await wait(const Duration(milliseconds: 50));
       }
+      final ms = DateTime.now().difference(started).inMilliseconds;
+      live = container.read(playerControllerProvider(request).notifier);
+      quiet();
+      return ms;
+    }
+
+    /// Closes the player; returns how long until the page under it had
+    /// every image on screen decoded again (P5).
+    Future<int> closePlayer() async {
+      live = null;
+      final started = DateTime.now();
+      router.pop();
+      final cache = PaintingBinding.instance.imageCache;
+      // The route's pop animation, then nothing left to decode.
+      await wait(const Duration(milliseconds: 100));
+      final end = DateTime.now().add(const Duration(seconds: 20));
+      while (cache.pendingImageCount > 0 && DateTime.now().isBefore(end)) {
+        await wait(const Duration(milliseconds: 16));
+      }
+      return DateTime.now().difference(started).inMilliseconds;
+    }
+
+    /// Seeks by [delta] and waits until it plays again from there; returns
+    /// how long that took (P2), or -1 if it didn't within 20 s.
+    Future<int> timedSeek(Duration delta) async {
+      final c = live!;
+      final from = c.engine.currentPosition;
+      final target = from + delta;
+      quiet(const Duration(seconds: 30));
+      final started = DateTime.now();
+      await c.seekBy(delta);
+      final end = started.add(const Duration(seconds: 20));
+      var last = Duration.zero;
+      var ms = -1;
+      while (DateTime.now().isBefore(end)) {
+        final st = c.state;
+        final pos = c.engine.currentPosition;
+        final there = (pos - target).abs() < const Duration(seconds: 3);
+        if (there &&
+            st.playing &&
+            !st.buffering &&
+            pos > last &&
+            last > Duration.zero) {
+          ms = DateTime.now().difference(started).inMilliseconds;
+          break;
+        }
+        last = there ? pos : Duration.zero;
+        await wait(const Duration(milliseconds: 50));
+      }
+      quiet();
+      return ms;
     }
 
     final keys = _Keys(wait);
+    final perf = <Map<String, Object?>>[];
 
     switch (scenario) {
       case 'cycle':
@@ -227,7 +330,7 @@ void main() {
           await openPlayer();
           await wait(const Duration(seconds: playSeconds));
           await sample('playing #$i (${player().quality?.label})');
-          router.pop();
+          await closePlayer();
           await wait(afterClose);
           await sample('closed #$i', gc: true);
           await trimmed('trimmed #$i');
@@ -276,7 +379,7 @@ void main() {
           final minute = half / 2;
           // None in the last 5 minutes, which T4 measures.
           if (minute == 5 || minute == 10 || minute == 14) {
-            await controller.seekBy(const Duration(minutes: 5));
+            await timedSeek(const Duration(minutes: 5));
           }
           if (minute == 8) {
             // Down one quality and straight back up.
@@ -284,17 +387,49 @@ void main() {
             final now = player().quality;
             final lower = sources.where((s) => s != now).firstOrNull;
             if (lower != null && now != null) {
+              quiet(const Duration(seconds: 60));
               await controller.selectQuality(lower);
               await wait(const Duration(seconds: 20));
               await controller.selectQuality(now);
+              await wait(const Duration(seconds: 20));
+              live = container.read(playerControllerProvider(request).notifier);
+              quiet();
             }
           }
           await sample('playing ${half * 30} s (${player().quality?.label})');
         }
-        router.pop();
+        await closePlayer();
         await wait(afterClose);
         await sample('closed', gc: true);
         await trimmed('trimmed');
+      case 'perf':
+        for (var r = 1; r <= perfRounds; r++) {
+          final startMs = await openPlayer();
+          await wait(const Duration(seconds: 60));
+          await sample('playing #$r (${player().quality?.label})');
+          final seeks = {
+            'seek_back_10s_ms': await timedSeek(const Duration(seconds: -10)),
+            'seek_back_30s_ms': await timedSeek(const Duration(seconds: -30)),
+            'seek_fwd_10s_ms': await timedSeek(const Duration(seconds: 10)),
+            'seek_fwd_5m_ms': await timedSeek(const Duration(minutes: 5)),
+          };
+          await wait(const Duration(seconds: 30));
+          await sample('after seeks #$r');
+          final frames = await live?.engine.frameStats() ?? const {};
+          final returnMs = await closePlayer();
+          perf.add({
+            'round': r,
+            'start_ms': startMs,
+            ...seeks,
+            'return_ms': returnMs,
+            ...frames,
+            'stalls': stalls,
+            'stall_ms': stallMs,
+          });
+          debugPrint('perf #$r: ${perf.last}');
+          await wait(const Duration(seconds: 10));
+          await sample('closed #$r', gc: true);
+        }
       case 'download':
         final repo = container.read(downloadsRepositoryProvider);
         // The downloads' own log lines, which the test's run would lose.
@@ -336,7 +471,7 @@ void main() {
       default:
         fail(
           'unknown MEMORY_SCENARIO "$scenario" '
-          '(cycle, browse, long, download)',
+          '(cycle, browse, long, perf, download)',
         );
     }
 
@@ -350,6 +485,7 @@ void main() {
         'version': info.version,
         'quality': quality,
         'samples': samples,
+        if (perf.isNotEmpty) 'perf': perf,
         if (classesAtStart != null && classesAtEnd != null)
           'classes': _grown(classesAtStart, classesAtEnd),
       },

@@ -344,6 +344,11 @@ class ExoPlayerEngine implements PlayerEngine {
     await old.dispose();
   }
 
+  /// video_player doesn't report ExoPlayer's dropped frames; the TV's frame
+  /// pacing is measured from outside (`tool/tv_cadence.sh`).
+  @override
+  Future<Map<String, int>> frameStats() async => const {};
+
   @override
   Future<void> dispose() async {
     if (_disposed) return;

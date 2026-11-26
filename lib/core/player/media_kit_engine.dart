@@ -55,6 +55,31 @@ class MediaKitEngine implements PlayerEngine {
   /// shows the same player can be reused, Android recreates it.
   final bool recreatePerFile;
 
+  /// mpv's counters, by the names [frameStats] uses.
+  static const _frameCounters = {
+    'dropped': 'frame-drop-count',
+    'decoder_dropped': 'decoder-frame-drop-count',
+    'late': 'vo-delayed-frame-count',
+  };
+
+  @override
+  Future<Map<String, int>> frameStats() async {
+    final player = _player;
+    if (player == null || _disposed) return const {};
+    final native = player.platform! as NativePlayer;
+    final stats = <String, int>{};
+    for (final MapEntry(:key, :value) in _frameCounters.entries) {
+      try {
+        if (int.tryParse(await native.getProperty(value)) case final n?) {
+          stats[key] = n;
+        }
+      } on Object {
+        continue;
+      }
+    }
+    return stats;
+  }
+
   static int get _bufferBytes => (isDesktop ? 192 : 64) * 1024 * 1024;
 
   static Map<String, String> get _options => {

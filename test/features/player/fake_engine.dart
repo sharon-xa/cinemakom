@@ -135,5 +135,8 @@ class FakeEngine implements PlayerEngine {
   Widget buildVideo({BoxFit fit = BoxFit.contain}) => const SizedBox.expand();
 
   @override
+  Future<Map<String, int>> frameStats() async => const {};
+
+  @override
   Future<void> dispose() async => disposed = true;
 }

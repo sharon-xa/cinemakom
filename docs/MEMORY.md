@@ -189,7 +189,27 @@ Close the milestone:
 - [ ] Decide which of the M2 items to do, and add any new ones
 
 ### M2: Fixes (only those M1 justifies, each checked against §2.1)
-- [ ] **The performance baseline first**, before any change, on this PC, the laptop, the phone and the TV: P1–P5 (§2.1). Add mpv's dropped, late and stall counters and the start and seek times to the memory test's samples
+- [ ] **The performance baseline first**, before any change, on this PC, the laptop, the phone and the TV: P1–P5 (§2.1). Measured by the memory test's `perf` scenario (`PlayerEngine.frameStats`, stall watch, timed open, seeks and return) and the perf tests. This PC and the laptop done *(2026-11-26)*; the phone and the TV to do
+
+  *The baseline (before M2; medians of 3 rounds; 4K Endgame; times in ms):*
+
+  | Device | start | seek −10 s | −30 s | +10 s | +5 min | return | dropped / late frames | stalls |
+  |---|---|---|---|---|---|---|---|---|
+  | This PC (NVIDIA) | 1,341 | 105 | 574 | 475 | 520 | 101 | 0 / 0 | 0 |
+  | Omarchy laptop (Intel) | 1,820 | 157 | 368 | 416 | 585 | 102 | 0 / 0 | 0 |
+
+  *start*: opening to playing. *Seeks*: until it plays from the new place (only −10 s is near-instant: the others are mpv decoding from a keyframe, so the back buffer matters for −10 s most). *return*: closing until the page's images are drawn; 100 ms is the measurement's floor, so nothing was re-decoded. Runs: `build/memory/*-perf.json`.
+
+  *UI frame times, this PC* (`player_perf_test`, `build/memory/baseline-pc-player_perf.json`; UI thread, raster thread, ms):
+
+  | Scene | UI p90 / p99 | raster avg / p90 / p99 | raster over 8.3 ms |
+  |---|---|---|---|
+  | 4K, controls up | 0.12 / 0.49 | 7.8 / 34.8 / 36.2 | 21.8% |
+  | controls fading | 0.13 / 1.43 | 7.7 / 34.7 / 37.7 | 22.6% |
+  | scrubbing with previews | 0.53 / 1.42 | 11.4 / 34.6 / 35.1 | 36.9% |
+  | quality menu | 0.33 / 1.60 | 6.2 / 32.9 / 36.2 | 17.3% |
+
+  The raster thread's p90 of ~34 ms over 4K is today's state on this PC (NVIDIA): a fix must not raise it. `scroll_perf_test` runs on the phone only (its layout).
 - [ ] Leaks found in M1, each fixed, with a test that would catch it again
 - [ ] Linux: give freed memory back after the player closes (`malloc_trim`, via FFI in `media_kit_engine.dart`), **and cap glibc's arenas at 2** (`mallopt(M_ARENA_MAX)` at start, or `MALLOC_ARENA_MAX` in AppRun): M1 shows both are needed (finding 6). Re-check 4K smoothness with fewer arenas
 - [ ] Desktop buffer: keep the 192 MB read-ahead, and set mpv's back buffer (`demuxer-max-back-bytes`) on its own, much smaller (~32 MB): media_kit's `bufferSize` sets both (finding 8). Same for the 64 MB on phones and TVs once their runs show it. Re-run the player perf tests

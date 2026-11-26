@@ -70,6 +70,11 @@ String report(Map<String, dynamic> run) {
       ('gfx', (s) => _android(s, 'graphics')),
       ('pss', (s) => _android(s, 'total-pss')),
     ],
+    if (samples.any((s) => s['stalls'] != null)) ...[
+      ('drop', (s) => s['dropped']),
+      ('late', (s) => s['late']),
+      ('stalls', (s) => s['stalls']),
+    ],
     ('players', (s) => s['players']),
   ];
   final rows = [
@@ -97,6 +102,8 @@ String report(Map<String, dynamic> run) {
       'freed memory it keeps for reuse; images = the decoded image cache.',
     )
     ..write(_verdict(run['scenario'] as String?, samples));
+  final perf = (run['perf'] as List?)?.cast<Map<String, dynamic>>();
+  if (perf != null && perf.isNotEmpty) out.write(_perfTable(perf));
   final classes = run['classes'] as List?;
   if (classes != null && classes.isNotEmpty) {
     out.writeln('Dart classes that grew most, start to end (after a GC):');
@@ -186,3 +193,50 @@ String _verdict(String? scenario, List<Map<String, Object?>> samples) {
 }
 
 String _signed(int mb) => mb >= 0 ? '+$mb' : '$mb';
+
+/// The perf scenario's rounds (docs/MEMORY.md §2.1, the baseline): times in
+/// ms, frame counters since the file opened, stalls counted over the run.
+String _perfTable(List<Map<String, dynamic>> rounds) {
+  const columns = [
+    ('start', 'start_ms'),
+    ('−10s', 'seek_back_10s_ms'),
+    ('−30s', 'seek_back_30s_ms'),
+    ('+10s', 'seek_fwd_10s_ms'),
+    ('+5m', 'seek_fwd_5m_ms'),
+    ('return', 'return_ms'),
+    ('dropped', 'dropped'),
+    ('dec.drop', 'decoder_dropped'),
+    ('late', 'late'),
+    ('stalls', 'stalls'),
+  ];
+  String cell(Object? v) => v?.toString() ?? '–';
+  int? median(String key) {
+    final v = [for (final r in rounds) ?(r[key] as int?)]..sort();
+    return v.isEmpty ? null : v[v.length ~/ 2];
+  }
+
+  final rows = [
+    ['', for (final c in columns) c.$1],
+    for (final r in rounds)
+      ['#${r['round']}', for (final c in columns) cell(r[c.$2])],
+    ['median', for (final c in columns) cell(median(c.$2))],
+  ];
+  final widths = [
+    for (var i = 0; i < rows.first.length; i++)
+      rows.map((r) => r[i].length).reduce((a, b) => a > b ? a : b),
+  ];
+  final out = StringBuffer(
+    'Performance (P1-P5): times in ms (start: to the first frame; seeks: '
+    'until it plays from there; return: the page\'s images back), frames '
+    'since the file opened:\n',
+  );
+  for (final r in rows) {
+    out.writeln(
+      [
+        r.first.padRight(widths.first),
+        for (var i = 1; i < r.length; i++) r[i].padLeft(widths[i]),
+      ].join('  '),
+    );
+  }
+  return out.toString();
+}

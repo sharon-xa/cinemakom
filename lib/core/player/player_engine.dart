@@ -57,6 +57,7 @@ abstract interface class PlayerEngine {
 
   /// The end of the buffered range.
   Stream<Duration> get buffered;
+
   /// Whether playback was asked for and not paused: not whether frames are
   /// moving right now. A stall is [buffering] with [playing] still true
   /// (ExoPlayer's own isPlaying drops at every stall, PLAYER.md §6).
@@ -112,6 +113,13 @@ abstract interface class PlayerEngine {
   /// The video surface, scaled with [fit]. Rebuilds itself if the native
   /// player is recreated.
   Widget buildVideo({BoxFit fit = BoxFit.contain});
+
+  /// Frame counters since the file opened, for the performance checks
+  /// (docs/MEMORY.md §2.1): `dropped` (frames the player skipped to keep
+  /// up), `decoder_dropped` (the decoder fell behind) and `late` (shown
+  /// after their time). Empty where the engine can't tell (ExoPlayer
+  /// through video_player).
+  Future<Map<String, int>> frameStats();
 
   Future<void> dispose();
 }
