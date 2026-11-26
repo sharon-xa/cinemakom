@@ -60,8 +60,8 @@ enum SubtitleSize {
 }
 
 /// Whether the browsing screens on phones and tablets may turn sideways.
-/// Portrait by default, so lying down never flips the app; with [auto], the
-/// device's own auto-rotate setting decides. The player is always landscape.
+/// Auto by default, so the device's own auto-rotate setting decides; with
+/// [portrait], browsing stays upright. The player is always landscape.
 enum ScreenRotation { portrait, auto }
 
 /// The user's settings. [language] is null until the first-launch picker
@@ -69,10 +69,10 @@ enum ScreenRotation { portrait, auto }
 class AppSettings {
   const AppSettings({
     this.language,
-    this.defaultQuality = PreferredQuality.p1080,
+    this.defaultQuality = PreferredQuality.p2160,
     this.defaultSubtitle = SubtitlePreference.arabic,
     this.subtitleSize = SubtitleSize.medium,
-    this.screenRotation = ScreenRotation.portrait,
+    this.screenRotation = ScreenRotation.auto,
     this.downloadFolder,
   });
 

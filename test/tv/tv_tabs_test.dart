@@ -447,7 +447,7 @@ void main() {
       await tv.down();
       expect(tv.focused, startsWith('Default quality'));
       await tv.ok();
-      expect(tv.focused, '1080p');
+      expect(tv.focused, '2160p · 4K');
       await tv.back();
       expect(tv.focused, startsWith('Default quality'));
     });

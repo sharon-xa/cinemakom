@@ -9,27 +9,27 @@ void main() {
       expect(settings.language, isNull);
       expect(settings.hasChosenLanguage, isFalse);
       expect(settings.effectiveLanguage, AppLanguage.english);
-      expect(settings.defaultQuality, PreferredQuality.p1080);
+      expect(settings.defaultQuality, PreferredQuality.p2160);
       expect(settings.defaultSubtitle, SubtitlePreference.arabic);
       expect(settings.subtitleSize, SubtitleSize.medium);
-      expect(settings.screenRotation, ScreenRotation.portrait);
+      expect(settings.screenRotation, ScreenRotation.auto);
     });
 
     test('reads stored values', () {
       final settings = readSettings(
         MemoryPreferenceStore({
           PreferenceKeys.language: 'ar',
-          PreferenceKeys.defaultQuality: 2160,
+          PreferenceKeys.defaultQuality: 1080,
           PreferenceKeys.defaultSubtitle: 'off',
           PreferenceKeys.subtitleSize: 'large',
-          PreferenceKeys.screenRotation: 'auto',
+          PreferenceKeys.screenRotation: 'portrait',
         }),
       );
       expect(settings.language, AppLanguage.arabic);
-      expect(settings.defaultQuality, PreferredQuality.p2160);
+      expect(settings.defaultQuality, PreferredQuality.p1080);
       expect(settings.defaultSubtitle, SubtitlePreference.off);
       expect(settings.subtitleSize, SubtitleSize.large);
-      expect(settings.screenRotation, ScreenRotation.auto);
+      expect(settings.screenRotation, ScreenRotation.portrait);
     });
 
     test('unknown or mistyped values fall back to the defaults', () {
@@ -66,7 +66,7 @@ void main() {
       await notifier.setDefaultQuality(PreferredQuality.p720);
       await notifier.setDefaultSubtitle(SubtitlePreference.english);
       await notifier.setSubtitleSize(SubtitleSize.small);
-      await notifier.setScreenRotation(ScreenRotation.auto);
+      await notifier.setScreenRotation(ScreenRotation.portrait);
 
       expect(
         container.read(settingsProvider),
@@ -75,7 +75,7 @@ void main() {
           defaultQuality: PreferredQuality.p720,
           defaultSubtitle: SubtitlePreference.english,
           subtitleSize: SubtitleSize.small,
-          screenRotation: ScreenRotation.auto,
+          screenRotation: ScreenRotation.portrait,
         ),
       );
       expect(store.values, {
@@ -83,7 +83,7 @@ void main() {
         PreferenceKeys.defaultQuality: 720,
         PreferenceKeys.defaultSubtitle: 'english',
         PreferenceKeys.subtitleSize: 'small',
-        PreferenceKeys.screenRotation: 'auto',
+        PreferenceKeys.screenRotation: 'portrait',
       });
       // A restart reads back the same settings.
       expect(readSettings(store), container.read(settingsProvider));

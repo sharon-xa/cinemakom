@@ -142,12 +142,12 @@ void main() {
       final store = MemoryPreferenceStore({PreferenceKeys.language: 'en'});
       await pumpApp(tester, store: store);
       await openSettings(tester);
-      expect(find.text('1080p'), findsOneWidget);
+      expect(find.text('2160p · 4K'), findsOneWidget);
       expect(find.text('Arabic'), findsOneWidget);
 
       await tester.tap(find.text('Default quality'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('2160p · 4K'));
+      await tester.tap(find.text('1080p'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Default subtitles'));
@@ -155,9 +155,9 @@ void main() {
       await tester.tap(find.text('Off'));
       await tester.pumpAndSettle();
 
-      expect(find.text('2160p · 4K'), findsOneWidget);
+      expect(find.text('1080p'), findsOneWidget);
       expect(find.text('Off'), findsOneWidget);
-      expect(store.values[PreferenceKeys.defaultQuality], 2160);
+      expect(store.values[PreferenceKeys.defaultQuality], 1080);
       expect(store.values[PreferenceKeys.defaultSubtitle], 'off');
 
       await tester.tap(find.text('Subtitle size'));
@@ -168,7 +168,7 @@ void main() {
       expect(store.values[PreferenceKeys.subtitleSize], 'large');
     });
 
-    testWidgets('screen rotation is portrait until the user allows it', (
+    testWidgets('screen rotation follows the device until locked to portrait', (
       tester,
     ) async {
       final calls = <Object?>[];
@@ -183,19 +183,19 @@ void main() {
       );
       final store = MemoryPreferenceStore({PreferenceKeys.language: 'en'});
       await pumpApp(tester, store: store);
-      expect(calls.last, ['DeviceOrientation.portraitUp']);
+      // No preference: the system's auto-rotate decides.
+      expect(calls.last, isEmpty);
       await openSettings(tester);
-      expect(find.text('Portrait only'), findsOneWidget);
+      expect(find.text('Rotate with device'), findsOneWidget);
 
       await tester.tap(find.text('Screen rotation'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Rotate with device'));
+      await tester.tap(find.text('Portrait only'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Rotate with device'), findsOneWidget);
-      expect(store.values[PreferenceKeys.screenRotation], 'auto');
-      // No preference: the system's auto-rotate decides.
-      expect(calls.last, isEmpty);
+      expect(find.text('Portrait only'), findsOneWidget);
+      expect(store.values[PreferenceKeys.screenRotation], 'portrait');
+      expect(calls.last, ['DeviceOrientation.portraitUp']);
     });
 
     testWidgets('settings survive a restart', (tester) async {

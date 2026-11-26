@@ -40,7 +40,8 @@ void main() {
     await pumpApp(tester);
     await tester.tap(find.text('Settings').last);
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Activity log'), 200);
+    await tester.ensureVisible(find.text('Activity log'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Activity log'));
     await tester.pumpAndSettle();
     expect(find.byType(ActivityLogScreen), findsOneWidget);

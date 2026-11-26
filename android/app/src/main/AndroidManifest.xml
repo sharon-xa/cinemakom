@@ -24,9 +24,8 @@
     <uses-feature
         android:name="android.software.leanback"
         android:required="false"/>
-    <!-- MainActivity is portrait and TvActivity landscape; neither makes a
-         screen orientation a requirement, or stores would hide the app from
-         TVs (portrait) or some devices (landscape). -->
+    <!-- TvActivity is landscape; don't require a screen orientation, or stores
+         would hide the app from some devices. -->
     <uses-feature
         android:name="android.hardware.screen.portrait"
         android:required="false"/>
@@ -44,14 +43,12 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
-            android:screenOrientation="portrait"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            <!-- Phones and tablets start portrait, from the system's starting
-                 window on (a phone held sideways never shows a landscape
-                 splash). setBrowseOrientation / setPlayerOrientation
+            <!-- Phones and tablets follow the system auto-rotate by default;
+                 setBrowseOrientation / setPlayerOrientation
                  (lib/core/platform/orientation.dart) take over at runtime.
                  TVs launch TvActivity below instead. -->
             <!-- Specifies an Android theme to apply to this Activity as soon as

@@ -11,11 +11,9 @@ import 'app/widgets/broken_part.dart';
 import 'core/diagnostics/diagnostics.dart';
 import 'core/platform/app_dirs.dart';
 import 'core/platform/full_screen.dart';
-import 'core/platform/orientation.dart';
 import 'core/platform/platform_info.dart';
 import 'core/player/media_kit_engine.dart';
 import 'core/storage/legacy_files.dart';
-import 'core/storage/preferences.dart';
 import 'tv/tv_app.dart';
 
 Future<void> main() async {
@@ -37,9 +35,6 @@ Future<void> main() async {
   );
   BrokenPart.install();
   registerFontLicenses();
-  // Upright from the first frame on phones/tablets; TVs stay landscape.
-  // The saved choice applies once settings load (CinemakomApp).
-  setBrowseOrientation(ScreenRotation.portrait);
 
   // cached_network_image stores its cache index in sqflite, which has no
   // native plugin on Linux/Windows. Route it through the FFI implementation.
