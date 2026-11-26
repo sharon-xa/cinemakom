@@ -159,5 +159,13 @@ void main() {
       isNot(contains(DownloaderState.failed)),
     );
     await engine.cancel(videoId);
+    // Wait for the desktop isolate to close its partial file handle before
+    // tearDownAll removes the temp directory (Windows fails delete with EBUSY
+    // while a file is still open).
+    await until(
+      'canceled',
+      () => lastState() == DownloaderState.canceled ? true : null,
+      seconds: 15,
+    );
   });
 }

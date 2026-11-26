@@ -371,11 +371,13 @@ There is one Linux package (the owner's decision), so there's one thing to keep 
   `Documents\cinemakom.sqlite*`) and never deletes downloaded videos.
 - **Windows runner hardening:** unique window class
   (`CINEMAKOM_WIN32_WINDOW`) so single-instance handoff works in Arabic as
-  well as English; dark title bar matching Marquee even in Windows Light
-  Mode; high-DPI work-area clamping and centering on startup; 3 s shutdown
-  watchdog on `OnDestroy` so a hung plugin or DLL detach never leaves a
-  windowless zombie process holding the single-instance mutex; and deferred
-  fullscreen exit when leaving the player mid-frame.
+  well as English; pins `LIBMPV_LIBRARY_PATH` to the bundled `libmpv-2.dll`
+  beside `cinemakom.exe` so an external `LIBMPV_LIBRARY_PATH` never loads a
+  second `libmpv` into the process; dark title bar matching Marquee even in
+  Windows Light Mode; high-DPI work-area clamping and centering on startup;
+  3 s shutdown watchdog on `OnDestroy` so a hung plugin or DLL detach never
+  leaves a windowless zombie process holding the single-instance mutex; and
+  deferred fullscreen exit when leaving the player mid-frame.
 - **Local & CI build:** `tool/build_windows_installer.ps1` builds the
   release, portable zip and Setup `.exe` into `dist/`. The `windows` job in
   `.github/workflows/release.yml` verifies the bundled DLLs, packages both
@@ -384,11 +386,17 @@ There is one Linux package (the owner's decision), so there's one thing to keep 
 
 *Checked on Windows 11 Pro 25H2 (2026-11-25):*
 - `fvm flutter analyze` clean and full `fvm flutter test` passing.
-- `integration_test/player_engine_test.dart -d windows` passing on the
-  2026-11-11 `libmpv-2.dll` (1080p → 720p switch, 4K playback 19.4 s in
-  20.1 s, Arabic subtitles).
-- `integration_test/downloads_test.dart -d windows` passing (live CDN
-  download, pause, resume, offline play, delete).
+- `integration_test/player_engine_test.dart -d windows` and
+  `integration_test/player_test.dart -d windows` passing on the 2026-11-11
+  `libmpv-2.dll` (`d3d11va` zero-copy 4K at `23.976 fps` with 0 dropped
+  frames, WASAPI audio, plain and `libass` styled Arabic subtitles via
+  DirectWrite, disk cache in `<cache>/mpv-cache` with 0 `lavf` errors).
+- `integration_test/downloads_test.dart -d windows` and
+  `integration_test/downloads_recovery_test.dart -d windows` passing (live
+  CDN download, pause, resume, offline play, recovery, delete).
+- `LIBMPV_LIBRARY_PATH` isolation: launching `cinemakom.exe` with
+  `LIBMPV_LIBRARY_PATH` set to an external DLL loads only the bundled
+  `libmpv-2.dll`.
 - Installer lifecycle: fresh install (files, Start menu shortcut, Installed
   apps entry), launch (`Cinemakom 1.0.0 (1)` in log), single-instance
   handoff (`CINEMAKOM_WIN32_WINDOW`), `AppDirs` folders and Activity log in
@@ -434,6 +442,26 @@ There is one Linux package (the owner's decision), so there's one thing to keep 
 - **Interactive UI pass & first CI run:** 150%/200% DPI scaling, fullscreen,
   Arabic keyboard input, moved Videos folder, and the release workflow's
   first Windows installer run.
+- **4K stutter check on weaker Windows 11 hardware (unproven, for later
+  review):** slight 4K stutter was reported anecdotally on a less powerful
+  Windows 11 PC; not reproducible on an RTX 5070 (`d3d11va`, 0 dropped
+  frames, `raster p95 = 0.56 ms`). Suspects to measure on that machine
+  (`hwdec-current`, `frame-drop-count`, `decoder-frame-drop-count`) before
+  changing any player setting:
+  - `media_kit_video`'s Windows ANGLE pipeline (`angle_surface_manager.cc`)
+    allocates two full `3840×2160` BGRA8888 textures (~33 MB each) even on
+    1080p screens, stalls on `glFinish()`, and copies via `CopyResource`
+    every frame (Windows-only; Linux uses zero-copy `EGLImageKHR` +
+    `glFlush()`, Android uses ExoPlayer).
+  - `media_kit_video`'s `windows/video_output.cc` hardcodes
+    `video-timing-offset=0` (commented out on Linux) alongside `framedrop=vo`
+    on desktop (`media_kit_engine.dart` only sets `framedrop=no` off
+    desktop).
+  - `hwdec=auto` falling back to CPU software decoding if zero-copy
+    `d3d11va` EGL interop fails on an older iGPU/driver (shared risk with
+    Linux).
+  - Standard 3:2 pulldown judder for `23.976 fps` content on `60 Hz`
+    displays (`video-sync=audio`).
 
 ### Formats, in order
 1. **An installer (Inno Setup), per user, no admin rights:**

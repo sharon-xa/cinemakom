@@ -2,8 +2,47 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
+#include <string>
+
 #include "flutter_window.h"
 #include "utils.h"
+
+namespace {
+
+// Pin media_kit (and media_kit_video's queryDecoders) to the libmpv-2.dll next
+// to cinemakom.exe, overriding any LIBMPV_LIBRARY_PATH in the environment so
+// two libmpv DLLs never load into one process (same guard as Linux AppRun).
+void PinBundledLibmpv() {
+  std::wstring exe_path(MAX_PATH, L'\0');
+  DWORD len = 0;
+  while (true) {
+    len = ::GetModuleFileNameW(nullptr, exe_path.data(),
+                               static_cast<DWORD>(exe_path.size()));
+    if (len == 0) {
+      return;
+    }
+    if (len < exe_path.size()) {
+      exe_path.resize(len);
+      break;
+    }
+    if (exe_path.size() >= 32768) {
+      return;
+    }
+    exe_path.resize(exe_path.size() * 2);
+  }
+  const size_t slash = exe_path.find_last_of(L"\\/");
+  if (slash == std::wstring::npos) {
+    return;
+  }
+  const std::wstring libmpv = exe_path.substr(0, slash + 1) + L"libmpv-2.dll";
+  const DWORD attrs = ::GetFileAttributesW(libmpv.c_str());
+  if (attrs != INVALID_FILE_ATTRIBUTES &&
+      (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+    ::SetEnvironmentVariableW(L"LIBMPV_LIBRARY_PATH", libmpv.c_str());
+  }
+}
+
+}  // namespace
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -40,6 +79,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+  PinBundledLibmpv();
 
   flutter::DartProject project(L"data");
 

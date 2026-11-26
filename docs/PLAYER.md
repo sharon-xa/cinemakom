@@ -112,7 +112,7 @@ lib/
 | `ytdl` | `no` | Otherwise mpv runs its youtube-dl hook on every failed URL (seen in M0): a slow, useless subprocess |
 | `network-timeout` | `20` | The default 5 s drops slow CDN nodes on the tail read that non-fast-start files need |
 | `demuxer-readahead-secs` / `cache-secs` | 20 / 60 (desktop), 20 / 30 (mobile) | Fast seeks near the playhead without filling a phone's memory |
-| `cache-on-disk` | `yes` desktop, **`no` mobile** | On Android the disk cache fails ("Failed to create file cache", M0) |
+| `cache-on-disk` / `demuxer-cache-dir` | `yes` desktop (`<cache>/mpv-cache`), **`no` mobile** | On Android the disk cache fails ("Failed to create file cache", M0). On Windows it failed with the same error until `demuxer-cache-dir` was set; on Linux it also keeps the cache out of tmpfs `/tmp` |
 | `framedrop` | default desktop, **`no` mobile** | On a real phone (CPH2423) 4K dropped 14–20 frames per 25 s that were never late (`vo-delayed-frame-count` 0): a visible stutter. With `no`: 0 dropped, full 23.976 fps. Rendering tweaks (1080p surface, `gpu-dumb-mode`, `opengl-swapinterval=0`, `display-resample`) didn't help; `mediacodec_embed` only halved it. (Measured by `player_4k_test.dart`, removed at M9 with decision 7.) |
 | `hwdec` | `auto` (default) | 4K H.264 needs hardware decoding on phones. Fall back to `no` once on decoder errors |
 | `libass` | `true` | Needed for the styled ASS track (§7.2) |
@@ -390,6 +390,7 @@ Measured with the `mpv` 0.42 command line (the same libmpv media_kit uses on Lin
 | ExoPlayer's failures differ from mpv's | It stops on every error and resets its position; handled with `errorsStopPlayback` (§6) and a unit test. A minute in airplane mode recovers on the phone (2026-11-19); the 403 check is still to do (§13) |
 | Some Android phones can't decode 4K in hardware | ExoPlayer can't fall back to software like mpv, so the decoder fallback goes to a lower quality (§6, M9) |
 | Windows has no dev machine yet | M8 needs a Windows machine or VM. The NVIDIA Linux bug (AGENTS.md) doesn't affect Windows |
+| Possible 4K micro-stutter on weaker Windows 11 PCs *(unproven, 2026-11-26)* | Not reproduced on RTX 5070 (`d3d11va`, 0 dropped frames, `raster p95 = 0.56 ms`). Measure `hwdec-current` and drop counts on weaker hardware before changing defaults; see `docs/PACKAGING.md` §4 (Windows ANGLE double-4K `CopyResource` + `glFinish()` and `video-timing-offset=0` are Windows-only; `hwdec=auto` fallback and `framedrop=vo` are shared with Linux; Android uses ExoPlayer and is unaffected) |
 
 ## 15. M9 results (2026-11-19)
 

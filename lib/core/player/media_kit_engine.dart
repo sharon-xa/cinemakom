@@ -7,38 +7,41 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path/path.dart' as p;
 
+import '../platform/app_dirs.dart';
 import '../platform/platform_info.dart';
 import 'player_engine.dart';
 import 'subtitle_fonts.dart';
 
 /// Starts media_kit, once, before the first player (`main`).
 ///
-/// The Linux AppImage carries its own libmpv, next to the app
-/// (docs/PACKAGING.md §3), and media_kit must use that one. Left to itself
-/// it opens `libmpv.so` first: where mpv is installed, that's the system's
-/// copy, while the video plugin is linked to ours. Two libmpv in one
-/// process abort as the video opens (mpv's "group_index >= 0" assertion,
-/// seen on Arch with mpv installed).
+/// Desktop builds carry their own libmpv (`lib/libmpv.so.2` in the Linux
+/// AppImage, `libmpv-2.dll` next to `cinemakom.exe` on Windows;
+/// docs/PACKAGING.md §3–§4), and media_kit must use that one. Left to itself
+/// it honors `LIBMPV_LIBRARY_PATH` and then system library names, which can
+/// load a second libmpv alongside the one `media_kit_video` linked and abort
+/// as a video opens.
 ///
 /// This covers media_kit's players only: media_kit_video's decoder check
 /// calls `NativeLibrary.ensureInitialized()` again with no path, which
-/// forgets this one. The AppImage covers that itself (a `lib/libmpv.so`
-/// link and AppRun's `LIBMPV_LIBRARY_PATH`, docs/PACKAGING.md §3).
+/// forgets this one. Linux AppRun and Windows `main.cpp` also set
+/// `LIBMPV_LIBRARY_PATH` to the bundled library to cover that check.
 void initMediaKit() => MediaKit.ensureInitialized(libmpv: bundledLibmpv());
 
-/// `<app>/lib/libmpv.so.2` when the app carries its own libmpv, else `null`
-/// (Windows, Android, and a development build on the system's libmpv).
+/// The bundled libmpv next to the app (`<app>/lib/libmpv.so.2` on Linux,
+/// `<app>\libmpv-2.dll` on Windows), else `null` (Android, or a Linux
+/// development build on the system's libmpv).
 @visibleForTesting
 String? bundledLibmpv({
   String? executable,
+  bool? isWindowsOverride,
   bool Function(String path)? exists,
 }) {
-  if (executable == null && !Platform.isLinux) return null;
-  final path = p.posix.join(
-    p.posix.dirname(executable ?? Platform.resolvedExecutable),
-    'lib',
-    'libmpv.so.2',
-  );
+  final win = isWindowsOverride ?? (executable == null && Platform.isWindows);
+  if (executable == null && !Platform.isLinux && !win) return null;
+  final exe = executable ?? Platform.resolvedExecutable;
+  final path = win
+      ? p.windows.join(p.windows.dirname(exe), 'libmpv-2.dll')
+      : p.posix.join(p.posix.dirname(exe), 'lib', 'libmpv.so.2');
   return (exists ?? (f) => File(f).existsSync())(path) ? path : null;
 }
 
@@ -87,13 +90,27 @@ class MediaKitEngine implements PlayerEngine {
     'network-timeout': '20',
     'demuxer-readahead-secs': '20',
     'cache-secs': isDesktop ? '60' : '30',
-    // The disk cache fails on Android ("Failed to create file cache").
-    'cache-on-disk': isDesktop ? 'yes' : 'no',
     // mpv's frame dropping misjudges 4K on phones: it dropped about 1 frame
     // in 40 that wasn't late, a visible stutter. With it off: 0 dropped,
     // 0 late, full frame rate (PLAYER.md §13).
     if (!isDesktop) 'framedrop': 'no',
   };
+
+  /// Directory for mpv's disk cache on desktop. Without `demuxer-cache-dir`,
+  /// Windows libmpv fails with "Failed to create file cache." and keeps the
+  /// buffer in RAM; on Linux this also keeps the cache out of tmpfs `/tmp`.
+  static String? _diskCacheDir() {
+    final base = AppDirs.current?.cache;
+    final path = base != null
+        ? p.join(base, 'mpv-cache')
+        : p.join(Directory.systemTemp.path, 'cinemakom-mpv-cache');
+    try {
+      Directory(path).createSync(recursive: true);
+      return path;
+    } on Object {
+      return null;
+    }
+  }
 
   Player? _player;
 
@@ -186,6 +203,15 @@ class MediaKitEngine implements PlayerEngine {
     try {
       for (final MapEntry(:key, :value) in _options.entries) {
         await native.setProperty(key, value);
+      }
+      // The disk cache fails on Android ("Failed to create file cache") and on
+      // Windows unless `demuxer-cache-dir` points to an existing folder.
+      final cacheDir = isDesktop ? _diskCacheDir() : null;
+      if (cacheDir != null) {
+        await native.setProperty('demuxer-cache-dir', cacheDir);
+        await native.setProperty('cache-on-disk', 'yes');
+      } else {
+        await native.setProperty('cache-on-disk', 'no');
       }
       if (!isAndroid) {
         final fonts = await libassFontsDir();

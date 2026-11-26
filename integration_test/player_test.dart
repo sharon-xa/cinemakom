@@ -13,6 +13,7 @@ import 'package:cinemakom/data/models/localized_text.dart';
 import 'package:cinemakom/data/models/media_item.dart';
 import 'package:cinemakom/data/models/playback_request.dart';
 import 'package:cinemakom/data/repositories/library_repository.dart';
+import 'package:cinemakom/features/details/details_screen.dart';
 import 'package:cinemakom/features/player/player_controller.dart';
 import 'package:cinemakom/features/player/player_screen.dart';
 import 'package:cinemakom/features/player/player_state.dart';
@@ -116,12 +117,12 @@ void main() {
   testWidgets('a movie: play, seek, quality, leave, resume', (tester) async {
     await pumpApp(tester);
     container(tester).read(routerProvider).push('/home/title/$movieId');
-    await until(
-      tester,
-      'Details',
-      () => find.text('Play').evaluate().isNotEmpty,
+    final playOnDetails = find.descendant(
+      of: find.byType(DetailsScreen),
+      matching: find.text('Play'),
     );
-    await tester.tap(find.text('Play'));
+    await until(tester, 'Details', () => playOnDetails.evaluate().isNotEmpty);
+    await tester.tap(playOnDetails);
     await until(tester, 'playback', () => playing(tester));
 
     await wait(tester, const Duration(seconds: 5));
