@@ -97,6 +97,17 @@ String report(Map<String, dynamic> run) {
       'freed memory it keeps for reuse; images = the decoded image cache.',
     )
     ..write(_verdict(run['scenario'] as String?, samples));
+  final classes = run['classes'] as List?;
+  if (classes != null && classes.isNotEmpty) {
+    out.writeln('Dart classes that grew most, start to end (after a GC):');
+    for (final c in classes.cast<Map<String, dynamic>>()) {
+      out.writeln(
+        '  ${'${c['kb_grown']}'.padLeft(7)} KB  '
+        '${'${c['instances_grown']}'.padLeft(7)} more, '
+        '${'${c['instances']}'.padLeft(7)} now  ${c['class']}',
+      );
+    }
+  }
   return out.toString();
 }
 

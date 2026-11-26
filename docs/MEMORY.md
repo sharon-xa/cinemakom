@@ -1,6 +1,6 @@
 # Memory: the investigation and fix plan
 
-> **Status (2026-11-25):** M0 done (the measuring tools). M1, the investigation, is under way: this PC's Linux runs, the allocator experiment and heaptrack are done (§5 M1, *Findings so far*); the Omarchy laptop's and the phone's runs are done too; next is the TV. Work through §5 in order and tick each box as it's done, with the date and the numbers. **Read it before changing caches, buffers, or how the player opens and closes.**
+> **Status (2026-11-25):** M0 done (the measuring tools). M1, the investigation, is under way: this PC's Linux runs, the allocator experiment and heaptrack are done (§5 M1, *Findings so far*); the Omarchy laptop's and the phone's runs and the Dart-side checks are done too; the TV is left. Work through §5 in order and tick each box as it's done, with the date and the numbers. **Read it before changing caches, buffers, or how the player opens and closes.**
 
 The goal: **memory comes back when a feature is done with it, and stays flat over a long session.** Closing the player returns the app to about what it used before the video. Ten videos in a row use no more than one. Browsing for an hour levels off. This matters most on the weakest devices we support: low-end phones and TVs with 1.5 to 2 GB of RAM, where Android kills the app in the background, or the TV stutters, long before a desktop notices.
 
@@ -151,6 +151,13 @@ Linux (this PC, and the Omarchy laptop):
 12. **Browsing: flat (T3 passes, +1 MB), but graphics memory is 2.6× the image cache.** The cache fills to its 100 MB cap by the first genre page and graphics goes 63 → 328 MB, then stays there for 10 idle minutes. On the phone a decoded image lives in GPU memory, and costs more there than the cache counts. So the image cache's cap is the biggest lever for the phone's browsing memory (M2, against P4 and P5).
 13. **4K playback is bounded (T4 passes, +9 MB in the last 5 minutes).** PSS 459–527 MB playing: the Java heap saw-tooths 164–204 (the buffer filling and being collected) and native and graphics stay flat (66–74, 108). Much smaller than mpv's: ExoPlayer decodes in hardware into the texture, with no copy back.
 
+
+*The Dart side (2026-11-26, this PC).*
+
+14. **The Dart heap keeps nothing (§3.4, ruled out).** Each run's report now lists the classes that grew most from start to end, after a GC (VM service `getAllocationProfile`). After 5 videos the biggest is 154 KB of strings, then lists, records and semantics nodes: under 1 MB in all, the widgets of the screen on show. Likewise after the download.
+15. **Nothing outlives its screen, and the buffers are capped (code read).** Every `.family` provider is `autoDispose`; paged lists stay 5 minutes after nothing shows them (`PagedMediaNotifier.keepFor`), by design, so going back doesn't reload. Every subscription, timer and listener is cancelled by its owner (both engines, `PlayerController`, `HomeHero`, audio focus, the TV screens); the few never cancelled belong to things that live as long as the app (the router, the downloader's updates). `EventLog` keeps 2,000 entries of at most 4,000 characters, and at most 20,000 lines waiting for the disk (a few MB with real lines). The downloads' per-task maps are emptied when a task is forgotten. There is no in-memory API cache.
+16. **A long download: memory rises ~150 MB over 10 minutes and stays after deleting it; and a downloads bug.** RSS 471 → 524 after 30 s, 562 at 2 min, 597 at 5, 628 at 10, 623 after the delete (`*-download-run1.json`). Native (glibc's in-use 72 → 107) and its kept memory, not Dart (heap ~30 MB, external ≤ 10 MB): likely the same arena spread as the player (finding 6), from the downloader's I/O; the M2 trim and arena cap should cover it, and a longer run checks whether it levels off. **The bug (DOWNLOADS.md, not memory):** the 3.3 GB 1080p file fails at 3,497,897,687 of 3,524,544,162 bytes (99.2%), at the same byte every time, and the retry **starts over from 0** instead of resuming: three times in 10 minutes. The activity log doesn't say why. The downloads tests only use a 50 MB file.
+
 Android phone (ExoPlayer):
 - [x] Cycle test, with Java, native and graphics per step (`Debug.MemoryInfo`): closing gives nothing back until Java collects its garbage (finding 11) *(2026-11-26)*
 - [x] Browse test: T3 passes; graphics memory is ~2.6× the image cache (finding 12) *(2026-11-26)*
@@ -165,10 +172,10 @@ Windows (mpv), if a machine is available:
 - [ ] Cycle test
 
 Dart side, on any platform:
-- [ ] Heap snapshots before the first video and after the 10th close: list what grew
-- [ ] Providers, listeners and timers that outlive their screen (§3.4)
-- [ ] EventLog and other buffers are capped
-- [ ] A long download: memory over 10 minutes (§3.5)
+- [x] What grew in the Dart heap, by class, from start to the end of a run (every run's report now lists it): **under 1 MB** (finding 14) *(2026-11-26)*
+- [x] Providers, listeners and timers that outlive their screen (§3.4): **none** (finding 15) *(2026-11-26)*
+- [x] EventLog and other buffers are capped: **yes** (finding 15) *(2026-11-26)*
+- [x] A long download: memory over 10 minutes (§3.5): rises ~150 MB, native; and a downloads bug (finding 16) *(2026-11-26)*
 
 Close the milestone:
 - [ ] Write the findings into §3 (confirmed or ruled out) and the targets into §2

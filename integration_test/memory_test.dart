@@ -8,6 +8,11 @@
 //   browse  Home three times, 3 genre pages scrolled far, 10 titles, then
 //           IDLE_MINUTES idle. Does browsing level off (T3)?
 //   long    LONG_MINUTES of 4K with seeks and a quality switch (T4).
+//   download  DOWNLOAD_MINUTES of a 1080p download (into build/memory on
+//           desktop, an in-memory database), then deleted (§3.5).
+//
+// Every run also lists the Dart classes whose instances grew most from
+// start to end (`classes` in the report).
 //
 // On Linux every sample also has glibc's own count of the memory it has
 // handed out and the freed memory it keeps for reuse (`mallinfo2`), and
@@ -38,21 +43,25 @@ import 'package:cinemakom/app/app.dart';
 import 'package:cinemakom/app/catalog_providers.dart';
 import 'package:cinemakom/app/router.dart';
 import 'package:cinemakom/app/widgets/poster_card.dart';
+import 'package:cinemakom/core/diagnostics/event_log.dart';
 import 'package:cinemakom/core/diagnostics/memory.dart';
 import 'package:cinemakom/core/network/api_endpoints.dart';
 import 'package:cinemakom/core/platform/app_info.dart';
 import 'package:cinemakom/core/platform/platform_info.dart';
 import 'package:cinemakom/core/player/media_kit_engine.dart';
+import 'package:cinemakom/core/storage/database.dart';
 import 'package:cinemakom/core/storage/preferences.dart';
 import 'package:cinemakom/data/models/localized_text.dart';
 import 'package:cinemakom/data/models/media_item.dart';
 import 'package:cinemakom/data/models/playback_request.dart';
+import 'package:cinemakom/data/repositories/downloads_repository.dart';
 import 'package:cinemakom/data/repositories/library_repository.dart';
 import 'package:cinemakom/features/player/player_controller.dart';
 import 'package:cinemakom/features/player/player_state.dart';
 import 'package:cinemakom/main.dart' show noRetry;
 import 'package:cinemakom/tv/tv_app.dart';
 import 'package:cinemakom/tv/tv_router.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,6 +81,10 @@ const longMinutes = int.fromEnvironment('LONG_MINUTES', defaultValue: 20);
 const idleMinutes = int.fromEnvironment('IDLE_MINUTES', defaultValue: 10);
 const quality = int.fromEnvironment('MEMORY_QUALITY', defaultValue: 2160);
 const trim = bool.fromEnvironment('MEMORY_TRIM');
+const downloadMinutes = int.fromEnvironment(
+  'DOWNLOAD_MINUTES',
+  defaultValue: 10,
+);
 
 /// How long after closing the player a "closed" sample waits (T1).
 const afterClose = Duration(seconds: 30);
@@ -106,6 +119,15 @@ void main() {
       addTearDown(tester.view.reset);
     }
     final heap = await _DartHeap.connect();
+    // Desktop: under build/, not the temp folder (RAM on many Linuxes).
+    final downloadDir = isDesktop
+        ? (Directory('build/memory/download')..createSync(recursive: true))
+        : Directory.systemTemp.createTempSync('cinemakom-memory');
+    final downloadDb = AppDatabase(NativeDatabase.memory());
+    addTearDown(() async {
+      await downloadDb.close();
+      if (downloadDir.existsSync()) downloadDir.deleteSync(recursive: true);
+    });
     final clock = Stopwatch()..start();
     final samples = <Map<String, Object?>>[];
 
@@ -161,6 +183,13 @@ void main() {
           libraryRepositoryProvider.overrideWithValue(
             MemoryLibraryRepository(),
           ),
+          // The download scenario keeps away from the real downloads.
+          if (scenario == 'download') ...[
+            appDatabaseProvider.overrideWithValue(downloadDb),
+            downloadRootProvider.overrideWithValue(
+              () async => (baseDirectory: 'root', directory: downloadDir.path),
+            ),
+          ],
         ],
         child: tv ? const TvApp() : const CinemakomApp(),
       ),
@@ -174,6 +203,7 @@ void main() {
       tv ? tvRouterProvider : routerProvider,
     );
     await sample('start', gc: true);
+    final classesAtStart = await heap?.classes();
 
     PlayerState player() => container.read(playerControllerProvider(request));
     Future<void> openPlayer() async {
@@ -261,10 +291,52 @@ void main() {
         await wait(afterClose);
         await sample('closed', gc: true);
         await trimmed('trimmed');
+      case 'download':
+        final repo = container.read(downloadsRepositoryProvider);
+        // The downloads' own log lines, which the test's run would lose.
+        final logged = EventLog.instance.changes.listen((_) {
+          final e = EventLog.instance.recent.lastOrNull;
+          if (e != null && (e.tag == 'downloads' || e.tag == 'error')) {
+            debugPrint('log ${e.format()}');
+          }
+        });
+        addTearDown(logged.cancel);
+        final choices = (await tester.runAsync(
+          () => repo.choices(request.videoId),
+        ))!;
+        final choice =
+            choices.where((c) => c.source.height == 1080).firstOrNull ??
+            choices.last;
+        debugPrint(
+          'memory: downloading ${choice.source.label}, '
+          '${((choice.bytes ?? 0) / (1 << 20)).round()} MB',
+        );
+        await tester.runAsync(
+          () => repo.download(
+            request.item,
+            source: choice.source,
+            bytes: choice.bytes,
+          ),
+        );
+        for (var half = 1; half <= downloadMinutes * 2; half++) {
+          await wait(const Duration(seconds: 30));
+          final row = await tester.runAsync(() => repo.get(request.videoId));
+          final mb = ((row?.downloadedBytes ?? 0) / (1 << 20)).round();
+          await sample(
+            'downloading ${half * 30} s ($mb MB, ${row?.status.name})',
+          );
+        }
+        await tester.runAsync(() => repo.delete(request.videoId));
+        await wait(afterClose);
+        await sample('deleted', gc: true);
       default:
-        fail('unknown MEMORY_SCENARIO "$scenario" (cycle, browse, long)');
+        fail(
+          'unknown MEMORY_SCENARIO "$scenario" '
+          '(cycle, browse, long, download)',
+        );
     }
 
+    final classesAtEnd = await heap?.classes();
     final info = await readAppInfo();
     binding.reportData = {
       'memory': {
@@ -274,6 +346,8 @@ void main() {
         'version': info.version,
         'quality': quality,
         'samples': samples,
+        if (classesAtStart != null && classesAtEnd != null)
+          'classes': _grown(classesAtStart, classesAtEnd),
       },
     };
     // For a run without `flutter drive` (another machine over SSH): the
@@ -411,7 +485,56 @@ class _DartHeap {
     }
   }
 
+  /// Every Dart class with live instances, after a GC: by name (library
+  /// and class), its instance count and bytes.
+  Future<Map<String, ({int count, int bytes})>?> classes() async {
+    try {
+      final profile = await _service.getAllocationProfile(_isolate, gc: true);
+      final out = <String, ({int count, int bytes})>{};
+      for (final m in profile.members ?? const <vm.ClassHeapStats>[]) {
+        final name = m.classRef?.name;
+        if (name == null || (m.instancesCurrent ?? 0) == 0) continue;
+        final lib = m.classRef?.library?.uri ?? '';
+        final key = lib.isEmpty ? name : '$name ($lib)';
+        final was = out[key];
+        out[key] = (
+          count: (was?.count ?? 0) + (m.instancesCurrent ?? 0),
+          bytes: (was?.bytes ?? 0) + (m.bytesCurrent ?? 0),
+        );
+      }
+      return out;
+    } on Object {
+      return null;
+    }
+  }
+
   void dispose() => _service.dispose();
+}
+
+/// The [top] classes that grew most in bytes from [start] to [end].
+List<Map<String, Object>> _grown(
+  Map<String, ({int count, int bytes})> start,
+  Map<String, ({int count, int bytes})> end, {
+  int top = 20,
+}) {
+  final rows = [
+    for (final MapEntry(:key, :value) in end.entries)
+      (
+        name: key,
+        count: value.count - (start[key]?.count ?? 0),
+        bytes: value.bytes - (start[key]?.bytes ?? 0),
+        countEnd: value.count,
+      ),
+  ]..sort((a, b) => b.bytes.compareTo(a.bytes));
+  return [
+    for (final r in rows.take(top))
+      {
+        'class': r.name,
+        'instances_grown': r.count,
+        'instances': r.countEnd,
+        'kb_grown': (r.bytes / 1024).round(),
+      },
+  ];
 }
 
 /// glibc's allocator (Linux), through FFI: `null` elsewhere (Android has
