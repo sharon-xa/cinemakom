@@ -13,7 +13,12 @@ The goal: **memory comes back when a feature is done with it, and stays flat ove
 
 ## 2. What "fixed" means (targets)
 
-Set the real numbers in M1 from what we measure; these are where to start.
+The numbers were set before measuring; M1 (§5) keeps them. Where each stands now:
+- **T1** fails everywhere: +287 MB (laptop), +423 (this PC), +249 (phone) over start after the first close. With M2's fixes the experiments reached +93 (laptop, trim alone), ~+60 (this PC, trim and arena cap), +98 (phone, a Java GC). So T1 is reachable on the phone and close on desktop; the 4K back buffer (M2) should close the rest.
+- **T2** passes once memory levels off (by the 5th video); measured over 10 videos it fails only from the first videos' climb. It becomes a real check once T1 holds.
+- **T3** passes on Intel and the phone; on this PC only NVIDIA's driver breaks it (finding 5).
+- **T4** passes on the phone, and on desktop after the last seek.
+- **T5** is set per device from the M2 baseline: what each plays 4K with now, as the most it may use after M2.
 
 | # | Target | Measured how |
 |---|---|---|
@@ -43,30 +48,32 @@ How each fix stays off the hot path:
 
 ## 3. Suspects (what's known before measuring)
 
-None of these is confirmed. M1 decides which are real.
+Each marked from M1's findings (§5): **confirmed**, **ruled out**, or still open. The TV is the one platform not yet measured.
 
 ### 3.1 Desktop player (mpv, `media_kit_engine.dart`)
-- **The read-ahead buffer is 192 MB on desktop** (`_bufferBytes`, 64 MB on mobile), plus `cache-secs` 60 and `cache-on-disk`. Up to 192 MB of the 850 MB can be this, by design.
-- **Decoded 4K frames:** about 12 MB each (NV12), and mpv queues several, plus GPU copy-back (`vaapi-copy`) and the texture media_kit draws into.
-- **Freed but not returned:** closing calls `player.dispose()` (`_release`), and a test checks no native player stays alive (`livePlayers`). But glibc keeps freed memory in its per-thread arenas for reuse, and mpv and FFmpeg use many threads. RSS would then stay high without a leak. The next video reuses it.
-- **media_kit_video's texture and GL objects** (`NativeVideoController`): whether they are freed on dispose is unverified.
+- **The read-ahead buffer is 192 MB on desktop** (`_bufferBytes`, 64 MB on mobile), plus `cache-secs` 60 and `cache-on-disk`. Up to 192 MB of the 850 MB can be this, by design. **Confirmed, and twice that:** media_kit's `bufferSize` also sets the back buffer, and `cache-on-disk` doesn't keep it out of RAM, so ~300 MB of the 4K peak (finding 8).
+- **Decoded 4K frames:** about 12 MB each (NV12), and mpv queues several, plus GPU copy-back (`vaapi-copy`) and the texture media_kit draws into. **Part of the peak, all given back:** the GPU mappings return to their start size after closing (finding 6).
+- **Freed but not returned:** closing calls `player.dispose()` (`_release`), and a test checks no native player stays alive (`livePlayers`). But glibc keeps freed memory in its per-thread arenas for reuse, and mpv and FFmpeg use many threads. RSS would then stay high without a leak. The next video reuses it. **Confirmed: the main cause on desktop** (findings 2, 6, 9). No leak (heaptrack, finding 3).
+- **media_kit_video's texture and GL objects** (`NativeVideoController`): whether they are freed on dispose is unverified. **Ruled out:** freed (heaptrack, finding 3; the GPU mappings, finding 6).
+
+- **Found in M1, not a suspect before: NVIDIA's GL driver** allocates ~100 MB on a thread of its own about 10 minutes in, idle or not (finding 5). Not on Intel. Not ours to fix.
 
 ### 3.2 Phone and TV player (ExoPlayer, `exo_player_engine.dart`)
-- Different engine, so nothing in §3.1 carries over. ExoPlayer's own buffer, MediaCodec's output surfaces, and video_player's texture. Android splits memory into Java heap, native, and graphics (`dumpsys meminfo`). Each needs its own check.
+- Different engine, so nothing in §3.1 carries over. ExoPlayer's own buffer, MediaCodec's output surfaces, and video_player's texture. Android splits memory into Java heap, native, and graphics (`dumpsys meminfo`). Each needs its own check. **Phone: ExoPlayer's buffer (~150 MB Java) waits for a garbage collection after closing, and one collection frees it all** (finding 11). No leak. The TV is still to measure.
 
 ### 3.3 Images
-- **Phone and desktop use Flutter's default image cache** (up to 100 MB, 1000 images). Nothing sets it. That may be the slow climb in §1.1. It should level off at the cap.
+- **Phone and desktop use Flutter's default image cache** (up to 100 MB, 1000 images). Nothing sets it. That may be the slow climb in §1.1. It should level off at the cap. **Confirmed: it is the climb, and it levels off at 100 MB** (findings 4, 9, 12). On the phone it costs ~2.6× that in graphics memory (finding 12).
 - **The TV sets 150 MB at 2× and 250 MB at 4×** (`TvImage.sizeCache`, TV.md §9.1): *above* the default, on the weakest devices. Plus `hdUrl` originals on focus.
 - **Decoded posters stay cached while a video plays.** They aren't needed then, and they compete with the player for RAM.
 - `MediaImage` decodes at display width (`memCacheWidth`), which keeps each image small. Check that every image path uses it (seek previews, hero banners, the TV's HD swap).
 
 ### 3.4 Dart side
-- Providers kept alive (14 files use `keepAlive` or `autoDispose`): a page's provider that never disposes, or a family that grows with every title opened.
-- Streams, controllers, listeners and timers not cancelled when a screen or the player closes (`Timer.periodic` in `player_controller.dart` and `diagnostics.dart`).
-- `EventLog` and other in-memory buffers: check they are capped.
+- Providers kept alive (14 files use `keepAlive` or `autoDispose`): a page's provider that never disposes, or a family that grows with every title opened. **Ruled out** (findings 14, 15).
+- Streams, controllers, listeners and timers not cancelled when a screen or the player closes (`Timer.periodic` in `player_controller.dart` and `diagnostics.dart`). **Ruled out** (finding 15).
+- `EventLog` and other in-memory buffers: check they are capped. **Ruled out: capped** (finding 15).
 
 ### 3.5 Downloads
-- A long download (GBs) shouldn't hold growing buffers in memory. Unchecked.
+- A long download (GBs) shouldn't hold growing buffers in memory. **Ruled out:** ~40–50 MB while it runs (finding 16).
 
 ## 4. How we measure
 
