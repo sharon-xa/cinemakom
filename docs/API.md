@@ -200,10 +200,10 @@ A series has **no separate record**. It is represented by its **first episode (S
 
 ### Streams (`transcoddedFiles`)
 `[{name, resolution, container, transcoddedFileName, videoUrl}]`.
-- **Formats:** every stream is **progressive MP4** (`container: "mp4"`); there is no HLS or DASH. Video is H.264 High, 23.976 fps, plus **one** AAC-LC stereo track, even where `audioStreamNumber` says more.
+- **Formats:** every stream is **progressive MP4** (`container: "mp4"`); there is no HLS or DASH. Almost all streams are **8-bit H.264 High (`avc1`, `yuv420p`)**, with a small number of recent 2026 4K titles in **8-bit HEVC Main (`hvc1`, `yuv420p`)**, at 23.976 / 24 / 25 fps, plus **one** AAC-LC 2.0 stereo track (48 kHz), even where `audioStreamNumber` or `realFileName` says more.
 - **Qualities:** `240p`, `360p`, `480p` (named `m480`), `720p`, `1080p`, and **`2160p`** (`mp4-4k`) on 22% of titles. 3% lack 1080p.
 - **Frame size:** the "p" is a size class; wide films are shorter (a "2160p" file can be 3840×1820).
-- **File sizes:** 4K is about **22 Mbit/s, 10 GB per hour**; 1080p is 1.7–3 Mbit/s. Measured throughput from the development machine was about 26 Mbit/s.
+- **File sizes:** 4K is about **22 Mbit/s, 10 GB per hour** (18–20 Mbit/s for the rare HEVC 4K files); 1080p is 1.7–3.9 Mbit/s. Measured throughput from the development machine was about 26 Mbit/s.
 - **File sizes and ranges (2026-11-19, for downloads):** the API never sends a file size. A stream URL answers `302` to a `cndwN.shabakaty.com` host, which serves the file.
   - `HEAD` gets **403** (the URL is signed for GET). To learn the size, ask for one byte: `GET` with `Range: bytes=0-0` answers `206` with `Content-Range: bytes 0-0/<total>` (`ApiClient.contentLength`). Only the headers are read, then the request is cancelled: a server that ignored the range would send the whole video, which `ResponseType.bytes` held in memory (2026-11-24; dio reads a stream body itself, so only its `CancelToken` closes the connection). Example: Friends S1E1 is 49 MB at 240p and 710 MB at 1080p.
   - Ranges work (`206`, a strong `ETag`), but a plain `200` sends **no `Accept-Ranges`**, so background_downloader would think a download can't be paused or resumed. Downloads therefore ask for `Range: bytes=0-` from the start, which gets a `206` for the whole file; resuming adds its offset to that range. Checked live: pause at 11%, resume with a fresh signed URL, and the file finished at its exact size.
@@ -218,6 +218,28 @@ A series has **no separate record**. It is represented by its **first episode (S
   - Players and downloads must call `streams()` again on a 403.
   - Never store stream URLs.
 - **Subtitle URLs** last about 30 days.
+
+### HDR, Dolby Vision, Dolby Atmos and codecs (2026-11-26 survey)
+Verified against **833 unique titles** (recent 2025–2026 uploads, featured, most-viewed, banners, and major 4K/HDR/Atmos blockbusters and series), probing the binary MP4 `moov` boxes of **210 live streams** (**181 × `2160p`** and **29 × `1080p`**, plus `720p`/`1080p` tier cross-checks) and cross-verifying 13 streams directly through FFmpeg (`libmpv-2.dll`).
+
+**Summary:** Cinemana has **no real 10-bit HDR10, Dolby Vision, or Dolby Atmos/surround support** — neither in the API metadata nor in its transcoded streams.
+
+| Technology | Source `realFileName` | Delivered streams (210 probed) | Notes |
+|---|---|---|---|
+| **HDR10 (10-bit PQ + `mdcv`/`clli`)** | 0 explicit `HDR`/`HDR10` tags seen; uploaders mostly ingest 4K SDR WEB-DLs | **0 / 210** (0%) | Every stream is transcoded to **8-bit `yuv420p`** (`0` 10-bit streams, even from `x265.10bit` sources such as `3117962`) |
+| **8-bit PQ / HLG passthrough** | Rare (`HLG` seen once: `3159152`; unmarked PQ source: `3137246`) | **2 / 181** `2160p` (~1.1%), **carried to all tiers** (`720p`, `1080p`, `2160p`) | Unintentional tag passthrough: transcoded to 8-bit `avc1` (`yuv420p`) with `colr` (`BT.2020` + `PQ` or `HLG` + `BT.2020nc`), **no** `mdcv`/`clli` static metadata (`max-cll=0`), and no SDR tone-mapping applied server-side |
+| **Dolby Vision** | 0 seen | **0 / 210** (0%) | Zero `dvcC`/`dvvC`/`dvwC` boxes, zero `dvh1`/`dvhe` tracks, zero RPU metadata. Even when a source container carried a `dby1` brand in `ftyp` (`3117962`), the output is plain 8-bit `avc1` BT.709 SDR |
+| **Dolby Atmos / Surround (5.1/7.1)** | Common (`143+` `DDP5.1`/`DD+`/`EAC3`, `52+` `Atmos`, `11` `DTS`/`TrueHD`) | **0 / 210** (0%) | **100%** downmixed and re-encoded to **1 track of `mp4a` (AAC-LC) 2.0 stereo at 48 kHz** (~180–300 kbit/s on 4K). Zero `ec-3`/`ac-3`/Atmos JOC (`dec3`) or multi-channel tracks |
+| **Video codecs** | Mostly `H.265`/`HEVC` on 4K sources | `2160p`: **178 `avc1`** (98.3%) + **3 `hvc1`** (1.7%)<br>`1080p`: **29 `avc1`** (100%) | The 3 `hvc1` streams (`3150062` *Sacrifice*, `3150056` *Tenzing*, `3148886` *Love of Your Life*, all 2026) are **8-bit HEVC Main (`yuv420p`, BT.709 SDR, 18–20 Mbit/s, `Lavf59.27.100`, fast-start)**; their `1080p`/`720p` tiers remain `avc1`. Zero AV1 or VP9 |
+| **API metadata** | `realFileName` only (unreliable for output) | None | Neither `allVideoInfo` nor `transcoddedFiles` exposes HDR, codec, bit depth, or channel fields. `transcoddedFiles` always has only `{name, resolution, container, transcoddedFileName, videoUrl}` |
+
+**Transcoder behavior and client implications:**
+- **Transcoder fingerprint:** `1080p` and lower are always written by `Lavf59.27.100` (FFmpeg 5.1), `avc1` H.264 High 8-bit, tail-`moov` (`fast_start: false`, 29/29). `2160p` files are always fast-start (`moov` at head, 181/181) at ~22.1 Mbit/s median (15.5–22.2 Mbit/s); the 178 `avc1` 4K files omit the `©too` tag while the 3 `hvc1` 4K files carry `Lavf59.27.100`.
+- **Color tags (`colr`):** 175/181 `2160p` and 25/29 `1080p` streams explicitly signal `BT.709 / BT.709 / BT.709` (`nclx`); 4 `2160p` and 4 `1080p` omit `colr` and decode as BT.709 SDR in FFmpeg. Only the 2 titles above (`3137246` PQ, `3159152` HLG) carry `BT.2020` + `PQ`/`HLG` tags — and they do so across **every** resolution (`720p`, `1080p`, `2160p`), not only 4K.
+- **Implications for HDR support in Cinemakom:**
+  - Dedicated 10-bit HDR10 / Dolby Vision passthrough or UI "HDR / DV / Atmos" badges have **no real server support** today (never infer HDR/DV/Atmos from `realFileName`, which describes the raw upload before transcoding).
+  - For the rare ~1% of streams with accidental 8-bit `BT.2020/PQ` or `BT.2020/HLG` tags, players should preserve standard color-management / SDR tone-mapping (which `libmpv` does by default on desktop and ExoPlayer does on modern Android) rather than stripping or ignoring `colr` metadata, otherwise those titles wash out.
+  - Because `hvc1` (HEVC) now appears on a small share of 2026 4K titles, desktop and Android players must continue supporting both H.264 and HEVC at 2160p.
 
 ### Subtitles (`translationFiles`, and `translations` in `allVideoInfo`)
 `{arTranslationFile, arTranslationFilePath, enTranslationFile, enTranslationFilePath, spTranslationFile, translations?: [{id, name, type, extention, file}]}`. The key is spelled `extention`.
@@ -381,7 +403,8 @@ It has no endpoint the website lacks that returns data. App IDs, keys and tokens
 - **Android app:** analysed (§6). There is nothing new to use.
 - **Fields:** `introSkipping.control_level` (always `"3"`, meaningless) and `episode_flag` (episode labels) are explained. `audioStreamNumber` is a meaningless counter (one audio track per file). `isSpecial`, `orderNmmer`, `replacement`, `watermark`, `useParentImg`, `fileSize*`, `channels` and `translationFlag` are meaningless or absent. `published`, `itemDate` and `updateDateTime` are upload timestamps. Group `analytics` is telemetry.
 - **Sort codes:** all 12 of the website's keys were mapped (§2). There are no hidden ones.
-- **2160p:** real 3840-wide H.264 at about 22 Mbit/s, fast-start, byte ranges work.
+- **2160p:** real 3840-wide 8-bit H.264 (~22 Mbit/s, 98%) or occasional 8-bit HEVC (18–20 Mbit/s, ~2% of 2026 titles), fast-start, byte ranges work.
+- **HDR / Dolby Vision / Dolby Atmos (2026-11-26):** no real 10-bit HDR10, Dolby Vision, or Atmos/surround streams exist across 210 probed live streams (833 titles surveyed); everything is 8-bit `yuv420p` with AAC-LC 2.0 stereo, with only ~1% of titles unintentionally passing through `BT.2020` + `PQ`/`HLG` `colr` tags in 8-bit H.264 across all resolutions (§3).
 - **Other formats:** there is no HLS or DASH, and no multi-audio.
 - **Subtitles:** only Arabic and English plain tracks exist, plus the styled Arabic ASS track (`spTranslationFile`). There is at most one per language and format.
 - **Staff lists:** not paginated. Counts differ simply by filmography (up to about 40).
