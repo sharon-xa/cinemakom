@@ -1,6 +1,6 @@
 # Memory: the investigation and fix plan
 
-> **Status (2026-11-25):** M0 done (the measuring tools). M1, the investigation, is under way: this PC's Linux runs, the allocator experiment and heaptrack are done (§5 M1, *Findings so far*); the Omarchy laptop's and the phone's runs and the Dart-side checks are done too; the TV is left. Work through §5 in order and tick each box as it's done, with the date and the numbers. **Read it before changing caches, buffers, or how the player opens and closes.**
+> **Status (2026-11-26):** M0 and M1 done, except the TV (not available yet). M2 is under way: the performance baseline is recorded for this PC, the laptop and the phone (§5, M2's first box). **Next: fix 1 of M2's ordered list** (Linux `malloc_trim` after the player closes), then 2, 3… Each fix is measured against the baseline and kept only if no performance number got worse (§2.1: performance comes first). Tick each box as it's done, with the date and the numbers. **Read this before changing caches, buffers, or how the player opens and closes.**
 
 The goal: **memory comes back when a feature is done with it, and stays flat over a long session.** Closing the player returns the app to about what it used before the video. Ten videos in a row use no more than one. Browsing for an hour levels off. This matters most on the weakest devices we support: low-end phones and TVs with 1.5 to 2 GB of RAM, where Android kills the app in the background, or the TV stutters, long before a desktop notices.
 
@@ -225,12 +225,15 @@ Close the milestone:
   | a title opened and closed | 1.28 / 9.03 | 5.05 / 6.79 | 1.3%, 0.3% |
 
   *The phone's video itself (P1):* video_player doesn't report ExoPlayer's dropped frames, and this phone's Android records no freeze or judder metrics for a decoder session (`dumpsys media.metrics` has only the basics: 24 fps, one flush per seek). `tool/tv_cadence.sh` doesn't help in the test build, which draws every frame. So on the phone P1 is the stall count (0), the frame times above, and the owner's eye, as in PLAYER.md §13. The phone's seeks are slower than desktop's (ExoPlayer re-buffers from the new place): −30 s at ~2 s is right at PLAYER.md §1's target.
-- [ ] Leaks found in M1, each fixed, with a test that would catch it again
-- [ ] Linux: give freed memory back after the player closes (`malloc_trim`, via FFI in `media_kit_engine.dart`), **and cap glibc's arenas at 2** (`mallopt(M_ARENA_MAX)` at start, or `MALLOC_ARENA_MAX` in AppRun): M1 shows both are needed (finding 6). Re-check 4K smoothness with fewer arenas
-- [ ] Desktop buffer: keep the 192 MB read-ahead, and set mpv's back buffer (`demuxer-max-back-bytes`) on its own, much smaller (~32 MB): media_kit's `bufferSize` sets both (finding 8). Same for the 64 MB on phones and TVs once their runs show it. Re-run the player perf tests
-- [ ] Image cache: a cap for phones and desktop, and a lower one for the TV, if the browse test shows it's needed
-- [ ] Free decoded posters while a video plays (`imageCache.clear()` on opening the player) if it helps phones and TVs without slowing the return to the page
-- [ ] Android: once the player has closed, ask Java to collect its garbage once (a background thread in `MainActivity`, never during playback): it frees the ~150 MB ExoPlayer's buffer leaves (finding 11). Check P2 and P5 (going back to the page) stay the same
+- [x] Leaks found in M1, each fixed: **none found** (findings 3, 11, 14) *(2026-11-26)*
+
+**The fixes, one at a time, lowest risk first** (owner's go-ahead, 2026-11-26). Each one: make the change, re-run its memory scenario and the `perf` scenario and perf tests on the devices it touches, compare with the baseline above, and keep it only if no P1–P5 number got worse beyond the run-to-run noise (§2.1). Write the before and after into its box.
+1. - [ ] **Linux: `malloc_trim(0)` after the player closes** (FFI in `media_kit_engine.dart`, off the UI thread, e.g. `Isolate.run`; never while a video plays). Expected: closing gives back ~250 MB (findings 2, 9). Check: `cycle` with T1/T2, `perf`
+2. - [ ] **Android: one Java garbage collection after the player closes** (a background thread in `MainActivity`, never during playback; the test-only `collectGarbage` shows it frees the ~150 MB ExoPlayer's buffer leaves, finding 11). Check: the phone's `cycle`, `perf` (P2, P5), `player_perf_test`
+3. - [ ] **Desktop: a smaller back buffer.** Keep the 192 MB read-ahead (`bufferSize`) and set `demuxer-max-back-bytes` on its own to ~32 MB, after media_kit sets it (finding 8). The −10 s seek must stay ~100–160 ms (only it uses the back buffer). Expected: ~250 MB less while playing 4K. Then decide the same for phones and TVs (64 MB). Check: `long`, `perf`, `player_perf_test`
+4. - [ ] **Linux: cap glibc at 2 arenas** (`mallopt(M_ARENA_MAX, 2)` at start via FFI, or `MALLOC_ARENA_MAX=2` in AppRun). The riskiest for playback: mpv's threads share the allocator's locks. Expected: ~100 MB less after closing, and flat across videos (finding 6). Check hardest: `perf` (dropped, late, stalls), `player_perf_test`, `long`
+5. - [ ] **The phone's image cache cap** (graphics memory is ~2.6× the cache, finding 12), and the TV's (its 150/250 MB caps, §3.3) once the TV is measured. Check: `browse`, `scroll_perf_test`, `perf` (P5: the return to the page)
+6. - [ ] Maybe: free decoded posters while a video plays (`imageCache.clear()` on opening the player), only if 5 isn't enough and P5 holds
 
 ### M3: Proof
 - [ ] Every M1 test run again on each platform, the results in a table here, against T1–T5
