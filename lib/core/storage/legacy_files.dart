@@ -57,6 +57,12 @@ Future<LegacyMove> moveLegacyDatabase({
   final staged = <File>[];
   try {
     await Directory(to).create(recursive: true);
+    // If an earlier run died mid-rename, stale companion files beside a
+    // missing target database would corrupt SQLite once the DB moves in.
+    for (final suffix in _companions) {
+      final stale = File('${target.path}$suffix');
+      if (await stale.exists()) await stale.delete();
+    }
     for (final suffix in parts) {
       staged.add(
         await File('${old.path}$suffix').copy('${target.path}$suffix.moving'),

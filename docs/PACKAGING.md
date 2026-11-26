@@ -40,11 +40,13 @@ build.
 
 ## 2. P0: put every file in the right place (before any package)
 
-*Built 2026-11-24. Checked on Linux, on the owner's real library: it
-moved out of `~/Documents` with its history intact, the log moved to
-`~/.local/state`, posters fill `~/.cache`, the old files went, and a
-second launch hands over to the open window. Windows is left to check:
-§2.1.*
+*Built 2026-11-24. Checked on Linux (2026-11-24) on the owner's real
+library, and on Windows 11 Pro (2026-11-25/26): old libraries moved out of
+Documents (with history and favorites intact and schema upgraded), logs
+moved to the state folder, posters fill the cache folder, relocated
+Windows Videos known folders resolve, `.partial` is hidden on Windows,
+legacy files are cleaned up, and a second launch hands over to the open
+window.*
 
 `AppDirs` (`lib/core/platform/app_dirs.dart`) decides the app's own
 folders on desktop, once, before `runApp`. On Android and in tests
@@ -96,43 +98,28 @@ What changed:
   `flutter run` and the integration tests start while the installed app
   is open.
 
-### 2.1 Left to check on Windows
+### 2.1 Windows P0 check ✅ *(verified 2026-11-25/26 on Windows 11 Pro 25H2)*
 
-The Windows code compiles only on Windows, and `main.cpp`'s change has
-never been built. Get a build either way:
-- **From CI (no tools needed):** run the Release workflow by hand
-  (Actions → Release → Run workflow, version `v0.0.0-dev`; it publishes
-  nothing), then download the `release-windows` artifact and unzip it.
-- **On the Windows machine:** Flutter 3.47.9 through fvm, Visual Studio
-  2022 with "Desktop development with C++", then
-  `fvm flutter build windows --release`; the app is in
-  `build\windows\x64\runner\Release`.
-
-Steps (about 15 minutes):
-1. **An old library to move.** Unzip an earlier release (v1.0.x from
-   GitHub), start it, play any title for a few seconds and add one to
-   your list, then close it. `Documents\cinemakom.sqlite` now exists.
-2. **Start the new build.** Continue watching and My list show what you
-   did in step 1.
-3. **Files:**
-   - `Documents\cinemakom.sqlite` is gone.
-   - `%LOCALAPPDATA%\io.github.sharon_xa\Cinemakom\` has
-     `cinemakom.sqlite`, `logs\current.log` and `cache\images\` (filling as
-     posters show).
-   - `%APPDATA%\io.github.sharon_xa\Cinemakom\` still has the settings
-     and the download engine's folders (expected, see above).
-4. **Activity log** (Settings → Help): the first lines say
-   `folders: data … · videos …` and `moved the library from …`. Save a
-   copy works.
-5. **Downloads:** Settings shows `<your Videos folder>\Cinemakom`; if
-   Videos is moved (OneDrive, another drive), the moved one. Start a
-   download: `Cinemakom\.partial` only shows in Explorer with hidden
-   items turned on.
-6. **One instance:** with the app open, start `cinemakom.exe` again. No
-   second window opens; the open one comes to the front, also when it was
-   minimized.
-7. If anything is off, Settings → Help → Activity log → Save a copy, and
-   send the file.
+Checked on a local Release build (`cinemakom.exe` 2.0.0):
+1. **Old v1.0.x library migration:** seeded a schema v2
+   `Documents\cinemakom.sqlite` with `watch_history` and `favorites` rows;
+   on launch `cinemakom.exe` moved it to
+   `%LOCALAPPDATA%\io.github.sharon_xa\Cinemakom\cinemakom.sqlite`,
+   upgraded schema v2 → v4 with all rows intact, removed the old file from
+   `Documents\`, and logged `folders: data …` and
+   `moved the library from …` in `logs\current.log`. Stale companion files
+   from an interrupted migration are also cleaned before staging
+   (`test/core/storage/legacy_files_test.dart`).
+2. **Moved `Videos` known folder & hidden `.partial`:** redirected
+   Windows `FOLDERID_Videos` (`My Video`) to a folder with spaces;
+   `cinemakom.exe` resolved it cleanly in `logs\current.log` (and a failed
+   `FOLDERID_Videos` lookup falls back to `%USERPROFILE%\Videos` without
+   disabling `AppDirs`). Verified `platformPartialDir` sets the Windows
+   `Hidden` attribute on `.partial`, including paths with spaces and Arabic
+   names (`test/data/download_paths_test.dart`).
+3. **One instance & legacy cleanup:** verified single-instance handoff via
+   `CINEMAKOM_WIN32_WINDOW` (2nd launch exits 0 with 1 process running) and
+   removal of legacy cache/font files.
 
 ## 3. Linux
 
@@ -384,25 +371,46 @@ There is one Linux package (the owner's decision), so there's one thing to keep 
   the zip and Setup `.exe`, and runs a silent install → launch → uninstall
   smoke test.
 
-*Checked on Windows 11 Pro 25H2 (2026-11-25):*
+*Checked on Windows 11 Pro 25H2 (2026-11-25/26):*
 - `fvm flutter analyze` clean and full `fvm flutter test` passing.
 - `integration_test/player_engine_test.dart -d windows` and
   `integration_test/player_test.dart -d windows` passing on the 2026-11-11
-  `libmpv-2.dll` (`d3d11va` zero-copy 4K at `23.976 fps` with 0 dropped
-  frames, WASAPI audio, plain and `libass` styled Arabic subtitles via
-  DirectWrite, disk cache in `<cache>/mpv-cache` with 0 `lavf` errors).
+  `libmpv-2.dll`: 1080p → 720p switch, 4K playback 19.4 s in 20.1 s
+  (`d3d11va` zero-copy at `23.976 fps` with 0 dropped frames), WASAPI audio,
+  plain and `libass` styled Arabic subtitles via DirectWrite, disk cache in
+  `<cache>/mpv-cache` with 0 `lavf` errors.
 - `integration_test/downloads_test.dart -d windows` and
   `integration_test/downloads_recovery_test.dart -d windows` passing (live
   CDN download, pause, resume, offline play, recovery, delete).
 - `LIBMPV_LIBRARY_PATH` isolation: launching `cinemakom.exe` with
   `LIBMPV_LIBRARY_PATH` set to an external DLL loads only the bundled
   `libmpv-2.dll`.
-- Installer lifecycle: fresh install (files, Start menu shortcut, Installed
-  apps entry), launch (`Cinemakom 1.0.0 (1)` in log), single-instance
-  handoff (`CINEMAKOM_WIN32_WINDOW`), `AppDirs` folders and Activity log in
-  `%LOCALAPPDATA%\io.github.sharon_xa\Cinemakom`, legacy cache cleanup,
-  live upgrade while the app is running (`ExitCode=0`, app closed cleanly),
-  clean `WM_CLOSE` exit with 0 lingering processes, and clean uninstall.
+- Installer & portable zip lifecycle: fresh install (files, Start menu
+  shortcut, Installed apps entry, English + Arabic `Arabic.isl`), launch
+  (`Cinemakom 2.0.0 (2)` in log), portable zip extraction & launch,
+  single-instance handoff (`CINEMAKOM_WIN32_WINDOW`), `AppDirs` folders and
+  Activity log in `%LOCALAPPDATA%\io.github.sharon_xa\Cinemakom`, v1.0.x
+  `Documents\cinemakom.sqlite` migration (v2 → v4), moved `Videos` known
+  folder, hidden `.partial`, legacy cache cleanup, live upgrade while the
+  app is running (`ExitCode=0`, app closed cleanly), clean `WM_CLOSE` exit
+  with 0 lingering processes, and clean silent uninstall.
+- PE DLL import audit of every `.exe` and `.dll` in `Release\`: all loaded
+  binaries depend exclusively on built-in Windows 10/11 system DLLs plus
+  the bundled VC++ runtime (`msvcp140*.dll`, `vcruntime140*.dll`,
+  `concrt140.dll`), ANGLE, Vulkan, `libmpv-2.dll`, `sqlite3.dll` and
+  `cnativeapi.dll` (`media_kit_video`'s ANGLE `zlib.dll` is unreferenced
+  and never loaded).
+- CI release run (`v2.0.0`, run `45541632882`, 2026-11-25): `Build Windows
+  (x64)` (portable zip, Inno Setup `.exe`, silent install/launch/uninstall
+  smoke test) and `Windows libmpv sources` (`…-windows-x64-sources.tar.zst`)
+  both passed and published.
+- UI pass (`test/features/windows_ui_pass_test.dart`,
+  `test/features/player/player_screen_test.dart`): all tabs, Details,
+  Activity log and Player render cleanly at 150% DPI (`1280×688`) and 200%
+  DPI (`960×516`) in English and Arabic; Arabic keyboard input in Search
+  and recent searches works; Windows fullscreen enter/exit/restore works;
+  and player keyboard shortcuts also work under an Arabic keyboard layout
+  (`_KeyActivator` physical-key fallback).
 
 ### Still remaining on Windows
 - **libmpv's source (GPL), reconstructed (2026-11-25):** shinchiro's
@@ -436,12 +444,11 @@ There is one Linux package (the owner's decision), so there's one thing to keep 
   GitHub deletes the logs after that. Or build libmpv ourselves.
 - **Unsigned:** Windows SmartScreen warns ("Windows protected your PC")
   the first time a downloaded `.exe` or installer runs.
-- **Windows Sandbox check:** verify a clean Windows (no Visual C++
-  Redistributable preinstalled) for first install, update, uninstall and
-  portable zip.
-- **Interactive UI pass & first CI run:** 150%/200% DPI scaling, fullscreen,
-  Arabic keyboard input, moved Videos folder, and the release workflow's
-  first Windows installer run.
+- **Windows Sandbox live boot:** PE import audit confirmed no missing
+  VC++ Redistributable DLLs, but the Windows Sandbox optional feature
+  (`Containers-DisposableClientVM`) is not enabled on the dev PC yet; once
+  enabled, run a live clean-PC check for first install, update, uninstall
+  and portable zip.
 - **4K stutter check on weaker Windows 11 hardware (unproven, for later
   review):** slight 4K stutter was reported anecdotally on a less powerful
   Windows 11 PC; not reproducible on an RTX 5070 (`d3d11va`, 0 dropped
@@ -502,8 +509,8 @@ There is one Linux package (the owner's decision), so there's one thing to keep 
 
 | | What | Done when |
 |---|---|---|
-| **P0** | Folders (§2), migration, one instance on both OSs | ✅ Linux 2026-11-24. Windows: folders, legacy cleanup, Activity log and one instance checked 2026-11-25 (left: old v1.0.x library move & moved Videos folder) |
-| **P1** | Windows: runtime DLLs, a current libmpv, first real-machine run, Inno installer in CI | Built & checked on Windows 11 Pro 2026-11-25 (4K playback, downloads, installer lifecycle). Left: Windows Sandbox clean-PC run, first CI release run, scaling/Arabic UI pass |
+| **P0** | Folders (§2), migration, one instance on both OSs | ✅ Linux 2026-11-24; ✅ Windows 2026-11-26 (folders, v1.0.x library move & v2→v4 upgrade, moved Videos folder, hidden `.partial`, legacy cleanup, Activity log, one instance) |
+| **P1** | Windows: runtime DLLs, a current libmpv, first real-machine run, Inno installer in CI | Built & checked on Windows 11 Pro 2026-11-25/26 (4K playback, downloads, PE DLL audit, portable zip, installer lifecycle, CI `v2.0.0` release & `windows-sources` run, 150%/200% DPI, fullscreen & Arabic input/shortcuts). Left: live Windows Sandbox clean-PC boot (optional feature not enabled on dev PC) |
 | **P2** | Linux: the AppImage and `install.sh` in CI, the tarball dropped, README points to the script | Built and checked (§3). Left: the first CI run, a real stream through the UI, a real Ubuntu or Fedora desktop |
 
 ## 6. Decisions for the owner

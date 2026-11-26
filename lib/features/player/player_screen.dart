@@ -513,7 +513,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
   }
 
-  /// The keys of PLAYER.md §9.2, the same in both languages.
+  /// The keys of PLAYER.md §9.2, the same in both languages (including when
+  /// the OS keyboard layout is Arabic).
   Map<ShortcutActivator, VoidCallback> get _shortcuts {
     VoidCallback key(void Function() action) => () {
       _input();
@@ -523,7 +524,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         unawaited(_controller.seekBy(Duration(seconds: seconds)));
     return {
       const SingleActivator(LogicalKeyboardKey.space): key(_togglePlay),
-      const SingleActivator(LogicalKeyboardKey.keyK): key(_togglePlay),
+      const _KeyActivator(LogicalKeyboardKey.keyK, PhysicalKeyboardKey.keyK):
+          key(_togglePlay),
       const SingleActivator(LogicalKeyboardKey.arrowLeft): key(
         () => seekBy(-10),
       ),
@@ -542,31 +544,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       const SingleActivator(LogicalKeyboardKey.arrowDown): key(
         () => _volumeBy(-5),
       ),
-      const SingleActivator(LogicalKeyboardKey.keyM): key(() async {
+      const _KeyActivator(
+        LogicalKeyboardKey.keyM,
+        PhysicalKeyboardKey.keyM,
+      ): key(() async {
         await _controller.toggleMute();
         _showVolume();
       }),
       if (isDesktop)
-        const SingleActivator(LogicalKeyboardKey.keyF): key(_toggleFullScreen),
-      const SingleActivator(LogicalKeyboardKey.keyC): key(
-        () => unawaited(_controller.nextSubtitle()),
-      ),
-      const SingleActivator(LogicalKeyboardKey.bracketLeft): key(
+        const _KeyActivator(LogicalKeyboardKey.keyF, PhysicalKeyboardKey.keyF):
+            key(_toggleFullScreen),
+      const _KeyActivator(LogicalKeyboardKey.keyC, PhysicalKeyboardKey.keyC):
+          key(() => unawaited(_controller.nextSubtitle())),
+      const _KeyActivator(
+        LogicalKeyboardKey.bracketLeft,
+        PhysicalKeyboardKey.bracketLeft,
+      ): key(
         () => _speedStep(-1),
       ),
-      const SingleActivator(LogicalKeyboardKey.bracketRight): key(
+      const _KeyActivator(
+        LogicalKeyboardKey.bracketRight,
+        PhysicalKeyboardKey.bracketRight,
+      ): key(
         () => _speedStep(1),
       ),
-      for (final (i, digit) in _digits.indexed)
-        SingleActivator(digit): key(
+      for (final (i, (logical, physical)) in _digits.indexed)
+        _KeyActivator(logical, physical): key(
           () => unawaited(_controller.seekToTenth(i)),
         ),
-      const SingleActivator(LogicalKeyboardKey.keyS): key(
-        () => unawaited(_controller.skipIntro()),
-      ),
-      const SingleActivator(LogicalKeyboardKey.keyN): key(
-        () => unawaited(_controller.playNext()),
-      ),
+      const _KeyActivator(LogicalKeyboardKey.keyS, PhysicalKeyboardKey.keyS):
+          key(() => unawaited(_controller.skipIntro())),
+      const _KeyActivator(LogicalKeyboardKey.keyN, PhysicalKeyboardKey.keyN):
+          key(() => unawaited(_controller.playNext())),
       const SingleActivator(LogicalKeyboardKey.escape): _escape,
     };
   }
@@ -574,16 +583,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   void _togglePlay() => unawaited(_controller.togglePlay());
 
   static const _digits = [
-    LogicalKeyboardKey.digit0,
-    LogicalKeyboardKey.digit1,
-    LogicalKeyboardKey.digit2,
-    LogicalKeyboardKey.digit3,
-    LogicalKeyboardKey.digit4,
-    LogicalKeyboardKey.digit5,
-    LogicalKeyboardKey.digit6,
-    LogicalKeyboardKey.digit7,
-    LogicalKeyboardKey.digit8,
-    LogicalKeyboardKey.digit9,
+    (LogicalKeyboardKey.digit0, PhysicalKeyboardKey.digit0),
+    (LogicalKeyboardKey.digit1, PhysicalKeyboardKey.digit1),
+    (LogicalKeyboardKey.digit2, PhysicalKeyboardKey.digit2),
+    (LogicalKeyboardKey.digit3, PhysicalKeyboardKey.digit3),
+    (LogicalKeyboardKey.digit4, PhysicalKeyboardKey.digit4),
+    (LogicalKeyboardKey.digit5, PhysicalKeyboardKey.digit5),
+    (LogicalKeyboardKey.digit6, PhysicalKeyboardKey.digit6),
+    (LogicalKeyboardKey.digit7, PhysicalKeyboardKey.digit7),
+    (LogicalKeyboardKey.digit8, PhysicalKeyboardKey.digit8),
+    (LogicalKeyboardKey.digit9, PhysicalKeyboardKey.digit9),
   ];
 
   @override
@@ -1015,4 +1024,32 @@ class _Failure extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Matches [logical] on any layout, and falls back to [physical] when a
+/// non-Latin keyboard layout (such as Arabic on Windows) maps the key to a
+/// non-ASCII Unicode character.
+class _KeyActivator extends ShortcutActivator {
+  const _KeyActivator(this.logical, this.physical);
+
+  final LogicalKeyboardKey logical;
+  final PhysicalKeyboardKey physical;
+
+  @override
+  bool accepts(KeyEvent event, HardwareKeyboard state) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    if (state.isControlPressed ||
+        state.isAltPressed ||
+        state.isMetaPressed ||
+        state.isShiftPressed) {
+      return false;
+    }
+    if (event.logicalKey == logical) return true;
+    final id = event.logicalKey.keyId;
+    final isNonLatinChar = id > 0x7F && id <= 0x10FFFF;
+    return isNonLatinChar && event.physicalKey == physical;
+  }
+
+  @override
+  String debugDescribeKeys() => logical.keyLabel;
 }

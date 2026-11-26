@@ -72,12 +72,12 @@ Future<void> initAppDirs() async {
     } else if (isWindows) {
       // %LOCALAPPDATA%\io.github.sharon_xa\Cinemakom (Runner.rc's names).
       final local = (await getApplicationCacheDirectory()).path;
-      // `String?` on Windows; the stub the analyzer sees elsewhere says
-      // `String`.
-      // ignore: unnecessary_nullable_for_final_variable_declarations
-      final String? videos = await PathProviderWindows().getPath(
-        _videosFolderId,
-      );
+      String? videos;
+      try {
+        videos = await PathProviderWindows().getPath(_videosFolderId);
+      } on Object catch (e) {
+        logEvent('app', "can't find the Videos folder: $e");
+      }
       AppDirs._current = windowsAppDirs(
         local: local,
         videos: videos == null || videos.isEmpty

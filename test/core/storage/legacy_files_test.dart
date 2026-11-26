@@ -83,12 +83,15 @@ void main() {
 
     test('stopped halfway, the next start finishes it', () async {
       doc('cinemakom.sqlite').writeAsStringSync('library');
-      // A copy left by a run that stopped before the switch.
+      // A copy left by a run that stopped before the switch, plus a stale
+      // companion file from an earlier aborted rename.
       dat('cinemakom.sqlite.moving')
         ..createSync(recursive: true)
         ..writeAsStringSync('lib');
+      dat('cinemakom.sqlite-wal').writeAsStringSync('stale-wal');
       expect(await move(), LegacyMove.moved);
       expect(dat('cinemakom.sqlite').readAsStringSync(), 'library');
+      expect(dat('cinemakom.sqlite-wal').existsSync(), isFalse);
     });
 
     test(

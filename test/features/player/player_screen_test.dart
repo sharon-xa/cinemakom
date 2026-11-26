@@ -754,5 +754,86 @@ void main() {
         debugDefaultTargetPlatformOverride = null;
       }
     });
+
+    testWidgets('shortcuts still work under an Arabic keyboard layout', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      final engine = FakeEngine();
+      final window = FakeFullScreen();
+      try {
+        await pumpApp(
+          tester,
+          engine: engine,
+          fullScreen: window,
+          width: 1280,
+          height: 688,
+          devicePixelRatio: 1.5,
+          store: MemoryPreferenceStore({PreferenceKeys.language: 'ar'}),
+        );
+        ProviderScope.containerOf(tester.element(find.byType(CinemakomApp)))
+            .read(routerProvider)
+            .push('/watch/3119279');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        engine.emitReady(
+          duration: const Duration(hours: 2),
+          at: const Duration(minutes: 10),
+        );
+        await tester.pump();
+
+        Future<void> pressArabic(
+          PhysicalKeyboardKey physical,
+          int codePoint,
+        ) async {
+          final logical = LogicalKeyboardKey(codePoint);
+          final down = KeyDownEvent(
+            physicalKey: physical,
+            logicalKey: logical,
+            character: String.fromCharCode(codePoint),
+            timeStamp: Duration.zero,
+          );
+          final up = KeyUpEvent(
+            physicalKey: physical,
+            logicalKey: logical,
+            timeStamp: const Duration(milliseconds: 10),
+          );
+          HardwareKeyboard.instance.handleKeyEvent(down);
+          // ignore: deprecated_member_use
+          ServicesBinding.instance.keyEventManager.keyMessageHandler?.call(
+            // ignore: deprecated_member_use
+            KeyMessage([down], null),
+          );
+          HardwareKeyboard.instance.handleKeyEvent(up);
+          // ignore: deprecated_member_use
+          ServicesBinding.instance.keyEventManager.keyMessageHandler?.call(
+            // ignore: deprecated_member_use
+            KeyMessage([up], null),
+          );
+          await tester.pump();
+        }
+
+        // Physical K -> Arabic ن (U+0646): pause.
+        await pressArabic(PhysicalKeyboardKey.keyK, 0x0646);
+        expect(engine.isPlaying, isFalse);
+        // Physical F -> Arabic ب (U+0628): fullscreen.
+        await pressArabic(PhysicalKeyboardKey.keyF, 0x0628);
+        expect(window.isOn, isTrue);
+        // Physical M -> Arabic ة (U+0629): mute.
+        await pressArabic(PhysicalKeyboardKey.keyM, 0x0629);
+        expect(engine.volume, 0);
+        // Physical ] -> Arabic د (U+062F): faster.
+        await pressArabic(PhysicalKeyboardKey.bracketRight, 0x062F);
+        expect(engine.rate, 1.25);
+        // Physical [ -> Arabic ج (U+062C): slower.
+        await pressArabic(PhysicalKeyboardKey.bracketLeft, 0x062C);
+        expect(engine.rate, 1.0);
+        // Physical 5 -> Arabic-Indic ٥ (U+0665): jump to 50%.
+        await pressArabic(PhysicalKeyboardKey.digit5, 0x0665);
+        expect(engine.seeks.last, const Duration(hours: 1));
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
   });
 }

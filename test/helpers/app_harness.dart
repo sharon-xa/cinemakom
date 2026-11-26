@@ -106,6 +106,7 @@ Future<void> pumpApp(
   FakeFullScreen? fullScreen,
   double width = 390,
   double height = 844,
+  double? devicePixelRatio,
   bool tv = false,
   int? freeSpace,
   FakeLogActions? logActions,
@@ -115,7 +116,7 @@ Future<void> pumpApp(
     width = 960;
     height = 540;
   }
-  final ratio = tv ? 2.0 : 3.0;
+  final ratio = devicePixelRatio ?? (tv ? 2.0 : 3.0);
   tester.view
     ..physicalSize = Size(width, height) * ratio
     ..devicePixelRatio = ratio;

@@ -6,6 +6,7 @@ import 'package:cinemakom/data/models/media_item.dart';
 import 'package:cinemakom/data/models/playback_models.dart';
 import 'package:cinemakom/data/repositories/download_paths.dart';
 import 'package:cinemakom/data/repositories/download_store.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
@@ -238,4 +239,30 @@ void main() {
       },
     );
   });
+
+  test(
+    'Windows hides .partial folder (including spaces and Arabic paths)',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      final root = Directory.systemTemp.createTempSync('dl-partial ');
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        root.deleteSync(recursive: true);
+      });
+      final moved = Directory(p.join(root.path, 'الفيديو', 'Cinemakom'))
+        ..createSync(recursive: true);
+      final partial = await platformPartialDir((
+        baseDirectory: 'root',
+        directory: moved.path,
+      ));
+      expect(partial, p.join(moved.path, '.partial'));
+      expect(Directory(partial!).existsSync(), isTrue);
+      final attrib = await Process.run('attrib', [partial]);
+      expect(attrib.exitCode, 0);
+      // attrib output puts 'H' in the attributes prefix before the path.
+      final prefix = (attrib.stdout as String).split(partial).first;
+      expect(prefix, contains('H'));
+    },
+    skip: !Platform.isWindows,
+  );
 }
