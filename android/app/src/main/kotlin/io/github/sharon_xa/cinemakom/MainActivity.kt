@@ -81,6 +81,12 @@ open class MainActivity : FlutterActivity() {
                 "memoryStats" -> result.success(
                     Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }.memoryStats,
                 )
+                // The memory test only (docs/MEMORY.md §4.4): what Java keeps
+                // once its garbage is collected. The app never calls it.
+                "collectGarbage" -> {
+                    Runtime.getRuntime().gc()
+                    result.success(null)
+                }
                 "publicMoviesDir" -> result.success(
                     try {
                         @Suppress("DEPRECATION")

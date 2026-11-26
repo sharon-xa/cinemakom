@@ -142,6 +142,20 @@ Future<Map<String, int>> _androidMemory() async {
   }
 }
 
+/// The memory test only: Android collects Java's garbage (the platform
+/// side of `malloc_trim` on Linux, docs/MEMORY.md §4.4). The app never
+/// calls it: Android decides when to collect.
+@visibleForTesting
+Future<void> collectJavaGarbage() async {
+  try {
+    await _platform
+        .invokeMethod<void>('collectGarbage')
+        .timeout(const Duration(seconds: 10));
+  } on Object {
+    return;
+  }
+}
+
 Map<String, int> parseAndroidMemoryStats(Map<String, String> stats) => {
   for (final MapEntry(:key, :value) in stats.entries)
     if (key.startsWith('summary.') && int.tryParse(value) != null)

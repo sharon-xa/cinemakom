@@ -1,6 +1,6 @@
 # Memory: the investigation and fix plan
 
-> **Status (2026-11-25):** M0 done (the measuring tools). M1, the investigation, is under way: this PC's Linux runs, the allocator experiment and heaptrack are done (§5 M1, *Findings so far*); the Omarchy laptop's runs are done too; next are the phone and the TV. Work through §5 in order and tick each box as it's done, with the date and the numbers. **Read it before changing caches, buffers, or how the player opens and closes.**
+> **Status (2026-11-25):** M0 done (the measuring tools). M1, the investigation, is under way: this PC's Linux runs, the allocator experiment and heaptrack are done (§5 M1, *Findings so far*); the Omarchy laptop's and the phone's runs are done too; next is the TV. Work through §5 in order and tick each box as it's done, with the date and the numbers. **Read it before changing caches, buffers, or how the player opens and closes.**
 
 The goal: **memory comes back when a feature is done with it, and stays flat over a long session.** Closing the player returns the app to about what it used before the video. Ten videos in a row use no more than one. Browsing for an hour levels off. This matters most on the weakest devices we support: low-end phones and TVs with 1.5 to 2 GB of RAM, where Android kills the app in the background, or the TV stutters, long before a desktop notices.
 
@@ -144,10 +144,17 @@ Linux (this PC, and the Omarchy laptop):
 9. **The Omarchy laptop (Intel UHD, Raptor Lake; the test app built here and run over SSH; `build/memory/omarchy-desktop-*-trim.json`) shows the same, smaller.** Start 327 MB, 721–896 playing 4K (the ~850 in §1), ~690 after each close, and **~420 after trimming** (+93 over start): trimming gives back ~270 MB. Native memory in use returns to ~85 MB after every close (74 at start): no leak. glibc's kept memory grows every video, to 1.5 GB of address space by the 6th (mostly not resident): it spreads over more and more, which is what the arena cap stops. **Idle Home is flat** (377–388 MB for 10 minutes): no jump on Intel, so finding 5 is NVIDIA's alone. Browsing levels off with the image cache at its 100 MB cap.
 10. **A measuring artifact, fixed (2026-11-26).** The samples that force a GC ("closed", the last idle one) read RSS after asking the VM for its allocation profile, which costs it 30–40 MB for a moment: their Dart heap reads 52–56 MB against 24–26 two seconds later. So every "closed" figure above is ~30 MB high, and the laptop's T3 "+44 MB, FAIL" is only that (without it: 377 → 384, a pass). The test now reads the process first.
 
+
+*The phone (2026-11-26, OnePlus CPH2423, Android 15, ExoPlayer; `build/memory/oneplus-cph2423-*`: `-cycle-run1` 10 cycles, `-browse-run1`, `-long-run1`, `-cycle-gc` 4 cycles with `MEMORY_TRIM=true`).* Sizes are `Debug.MemoryInfo` (PSS) unless RSS is said.
+
+11. **Closing the player gives nothing back until Java collects its garbage, and then it all comes back.** PSS 250 at start, 483 playing, 495 after closing; across 10 videos it levels at ~575 from the 5th (no leak). The **Java heap** stays at ~165 MB after closing (12 at start): ExoPlayer's 4K buffer (its default is 128 MB for video), let go but not yet collected. ART collects when the app allocates, and after closing the app hardly allocates Java objects. **One collection (`collectGarbage`, test only) takes the Java heap back to 12 MB:** PSS 491 → 350, and RSS 667 → 525. So nothing is held; it just waits. What's left above start after that grows ~16 MB a video for 4 videos (350, 377, 386, 398): graphics (60 → 170) and the image cache (12 → 58 MB, the player pages' artwork), which level off by the 5th video.
+12. **Browsing: flat (T3 passes, +1 MB), but graphics memory is 2.6× the image cache.** The cache fills to its 100 MB cap by the first genre page and graphics goes 63 → 328 MB, then stays there for 10 idle minutes. On the phone a decoded image lives in GPU memory, and costs more there than the cache counts. So the image cache's cap is the biggest lever for the phone's browsing memory (M2, against P4 and P5).
+13. **4K playback is bounded (T4 passes, +9 MB in the last 5 minutes).** PSS 459–527 MB playing: the Java heap saw-tooths 164–204 (the buffer filling and being collected) and native and graphics stay flat (66–74, 108). Much smaller than mpv's: ExoPlayer decodes in hardware into the texture, with no copy back.
+
 Android phone (ExoPlayer):
-- [ ] Cycle test, with `dumpsys meminfo` (Java, native, graphics) per step
-- [ ] Browse test
-- [ ] Long-play test
+- [x] Cycle test, with Java, native and graphics per step (`Debug.MemoryInfo`): closing gives nothing back until Java collects its garbage (finding 11) *(2026-11-26)*
+- [x] Browse test: T3 passes; graphics memory is ~2.6× the image cache (finding 12) *(2026-11-26)*
+- [x] Long-play test: T4 passes (finding 13) *(2026-11-26)*
 
 TV (TCL, ExoPlayer, Skia):
 - [ ] Cycle test, with `dumpsys meminfo`
@@ -174,7 +181,7 @@ Close the milestone:
 - [ ] Desktop buffer: keep the 192 MB read-ahead, and set mpv's back buffer (`demuxer-max-back-bytes`) on its own, much smaller (~32 MB): media_kit's `bufferSize` sets both (finding 8). Same for the 64 MB on phones and TVs once their runs show it. Re-run the player perf tests
 - [ ] Image cache: a cap for phones and desktop, and a lower one for the TV, if the browse test shows it's needed
 - [ ] Free decoded posters while a video plays (`imageCache.clear()` on opening the player) if it helps phones and TVs without slowing the return to the page
-- [ ] Android: anything ExoPlayer keeps after dispose
+- [ ] Android: once the player has closed, ask Java to collect its garbage once (a background thread in `MainActivity`, never during playback): it frees the ~150 MB ExoPlayer's buffer leaves (finding 11). Check P2 and P5 (going back to the page) stay the same
 
 ### M3: Proof
 - [ ] Every M1 test run again on each platform, the results in a table here, against T1–T5

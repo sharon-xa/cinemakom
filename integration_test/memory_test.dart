@@ -12,7 +12,8 @@
 // On Linux every sample also has glibc's own count of the memory it has
 // handed out and the freed memory it keeps for reuse (`mallinfo2`), and
 // MEMORY_TRIM=true adds a "trimmed" sample after each close: the same,
-// after `malloc_trim(0)` gave the kept memory back (§4.4).
+// after `malloc_trim(0)` gave the kept memory back (§4.4). On Android it's
+// after Java's garbage was collected (MainActivity's `collectGarbage`).
 //
 //   fvm flutter drive --profile -d linux \
 //     --driver=test_driver/memory_driver.dart \
@@ -129,12 +130,21 @@ void main() {
     }
 
     /// With MEMORY_TRIM, after a "closed" sample: glibc gives back the
-    /// freed memory it keeps, and a "trimmed" sample shows what's left.
+    /// freed memory it keeps (Linux), or Java collects its garbage
+    /// (Android), and a "trimmed" sample shows what's left.
     Future<void> trimmed(String label) async {
-      final glibc = _Glibc.instance;
-      if (!trim || glibc == null) return;
-      glibc.trim();
-      await wait(const Duration(seconds: 2));
+      if (!trim) return;
+      if (isAndroid) {
+        // Android: Java's garbage collected, then time for the runtime to
+        // hand freed pages back.
+        await collectJavaGarbage();
+        await wait(const Duration(seconds: 5));
+      } else {
+        final glibc = _Glibc.instance;
+        if (glibc == null) return;
+        glibc.trim();
+        await wait(const Duration(seconds: 2));
+      }
       await sample(label);
     }
 
