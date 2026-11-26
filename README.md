@@ -92,7 +92,7 @@
 | Android phones and tablets | ✅ Tested on a real phone (120 Hz, 4K playback) |
 | Android TV / Google TV | ✅ Tested on a TCL Google TV. Uses the same APK as phones |
 | Linux (x64) | ✅ Tested |
-| Windows (x64) | ⚠️ Builds in CI but hasn't been tried on a real machine yet |
+| Windows (x64) | ✅ Tested on Windows 11 (4K playback, downloads, installer and portable zip) |
 | iOS, iPadOS, macOS, tvOS | ❌ Not supported |
 
 ## Install
