@@ -375,6 +375,8 @@ Measured with the `mpv` 0.42 command line (the same libmpv media_kit uses on Lin
 3. An expired or forged URL signature (debug build): the player fetches fresh URLs and plays.
 4. ✅ A quality switch and an episode switch keep the picture. *Checked by the owner with M3 and M5.*
 
+**A file opening at a later point reports 0:00 first (2026-11-26).** On a quality switch, a resume or a recovery, mpv reports position 0 until the new file has loaded and sought (seen in the owner's Activity log on the laptop: "playing @ 0:00" for 2–3 s after picking 4K at 1:48:06, then a pause pressed by hand), and the clock and seek bar showed the video as restarted. `PlayerController` now skips positions under 2 s while a file opens at 10 s or later (`_landing`); a seek ends it, and from 2 s on positions count, so a stream that really starts from the beginning still shows it. Unit tests, and `player_test.dart` checks the clock never drops back during the switch or the resume on the real mpv (it failed at 44:57 → 0 before the fix).
+
 `integration_test/player_engine_test.dart -d <phone>` runs the live engine checks (playback, quality switch, 4K, subtitles) on ExoPlayer. The mpv spike and 4K tests were removed at M9.
 
 ## 14. Risks and open questions

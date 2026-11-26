@@ -465,6 +465,57 @@ void main() {
     },
   );
 
+  test('while a new stream opens, the clock stays where it opens, not 0:00 '
+      '(mpv reports 0 until the file has loaded)', () {
+    fakeAsync((async) {
+      final env = start(async);
+      env.engine.emitReady(at: const Duration(minutes: 108));
+      env.flush();
+      env.controller.selectQuality(
+        env.state.sources.firstWhere((s) => s.label == '720p'),
+      );
+      env.flush();
+      // The new file, before it has loaded and sought to the switch point.
+      env.engine.emitPosition(Duration.zero);
+      env.flush();
+      expect(env.controller.position.value, const Duration(minutes: 108));
+      expect(env.state.phase, PlayerPhase.loading);
+
+      // Loaded: mpv lands on the keyframe a little before, and plays on.
+      env.engine.emitReady(at: const Duration(minutes: 107, seconds: 58));
+      env.flush();
+      expect(
+        env.controller.position.value,
+        const Duration(minutes: 107, seconds: 58),
+      );
+      env.engine.emitPosition(const Duration(minutes: 108, seconds: 1));
+      env.flush();
+      expect(env.state.phase, PlayerPhase.ready);
+      expect(
+        env.controller.position.value,
+        const Duration(minutes: 108, seconds: 1),
+      );
+    });
+  });
+
+  test('a resumed video doesn\'t show 0:00 before it lands on its place', () {
+    fakeAsync((async) {
+      final library = MemoryLibraryRepository([
+        WatchProgress(
+          videoId: '7',
+          position: const Duration(minutes: 14),
+          duration: const Duration(minutes: 100),
+          updatedAt: DateTime(2026, 11, 19),
+          title: const LocalizedText(en: 'Movie'),
+        ),
+      ]);
+      final env = start(async, library: library);
+      env.engine.emitPosition(Duration.zero);
+      env.flush();
+      expect(env.controller.position.value, const Duration(minutes: 14));
+    });
+  });
+
   test('an episode switch keeps the chosen quality, subtitle and speed', () {
     fakeAsync((async) {
       const series = PlaybackRequest(

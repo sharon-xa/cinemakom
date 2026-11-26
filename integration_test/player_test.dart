@@ -16,6 +16,7 @@ import 'package:cinemakom/data/repositories/library_repository.dart';
 import 'package:cinemakom/features/details/details_screen.dart';
 import 'package:cinemakom/features/player/player_controller.dart';
 import 'package:cinemakom/features/player/player_screen.dart';
+import 'package:cinemakom/features/player/quality.dart';
 import 'package:cinemakom/features/player/player_state.dart';
 import 'package:cinemakom/main.dart' show noRetry;
 import 'package:flutter/services.dart';
@@ -144,7 +145,15 @@ void main() {
     final before = state(tester).quality!;
     final other = state(tester).sources.firstWhere((s) => s.url != before.url);
     final at = c.position.value;
-    await tester.tap(find.text(before.label).first);
+    // The clock never flashes back to 0:00 while the new stream opens.
+    var lowest = at;
+    void low() {
+      if (c.position.value < lowest) lowest = c.position.value;
+    }
+
+    c.position.addListener(low);
+    // The chip shows 4K for 2160p, the default since #7.
+    await tester.tap(find.text(qualityChipLabel(before)).first);
     await wait(tester, const Duration(milliseconds: 500));
     await tester.tap(find.text(other.label).last);
     await until(
@@ -152,10 +161,12 @@ void main() {
       'the new quality',
       () => playing(tester) && state(tester).quality!.url == other.url,
     );
+    c.position.removeListener(low);
     expect(
       (c.position.value - at).abs(),
       lessThan(const Duration(seconds: 15)),
     );
+    expect(at - lowest, lessThan(const Duration(seconds: 15)));
     final leftAt = c.position.value;
 
     // Leave, then Resume from Details.
@@ -166,7 +177,30 @@ void main() {
       () => find.textContaining('Resume').evaluate().isNotEmpty,
     );
     await tester.tap(find.textContaining('Resume').first);
+    await until(
+      tester,
+      'the player again',
+      () => find.byType(PlayerScreen).evaluate().isNotEmpty,
+    );
+    final again = controller(tester);
+    // From when it knows where it resumes (the library, a moment after the
+    // screen opens, under the loader).
+    await until(
+      tester,
+      'the resume point',
+      () => again.position.value > Duration.zero,
+    );
+    var lowestResumed = again.position.value;
+    void lowResumed() {
+      if (again.position.value < lowestResumed) {
+        lowestResumed = again.position.value;
+      }
+    }
+
+    again.position.addListener(lowResumed);
     await until(tester, 'the resumed playback', () => playing(tester));
+    again.position.removeListener(lowResumed);
+    expect(leftAt - lowestResumed, lessThan(const Duration(seconds: 15)));
     final resumed = controller(tester).position.value;
     expect((resumed - leftAt).abs(), lessThan(const Duration(seconds: 15)));
     // The quality picked in the menu holds for the session.

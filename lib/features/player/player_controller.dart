@@ -125,6 +125,15 @@ class PlayerController extends Notifier<PlayerState> {
   /// The last position known to play, for reopening after a failure.
   Duration _resumeAt = Duration.zero;
 
+  /// A file opening at a later point (a quality switch, a resume, a
+  /// recovery): until it gets there both engines report about 0 (mpv until
+  /// the file has loaded, ExoPlayer until its seek), which would show the
+  /// video as restarted for a few seconds. Those positions are skipped;
+  /// from [_landingFloor] on they're real, so a stream that does start
+  /// from the beginning still shows it.
+  bool _landing = false;
+  static const _landingFloor = Duration(seconds: 2);
+
   /// Up next (PLAYER.md §7.7): Hide was pressed for this episode, the
   /// countdown to the next one, and the episodes started by it in a row.
   bool _upNextHidden = false;
@@ -368,6 +377,7 @@ class PlayerController extends Notifier<PlayerState> {
     final source = state.quality;
     if (source == null) return;
     _stallTicks = 0;
+    _landing = start >= const Duration(seconds: 10);
     await engine.open(
       EngineSource(source.url, headers: ApiClient.defaultHeaders),
       start: start,
@@ -389,6 +399,7 @@ class PlayerController extends Notifier<PlayerState> {
   void _fail(Object error) {
     _recovering = false;
     _switching = false;
+    _landing = false;
     state = state.copyWith(phase: PlayerPhase.failed, error: error);
   }
 
@@ -397,6 +408,10 @@ class PlayerController extends Notifier<PlayerState> {
 
   void _onPosition(Duration p) {
     if (_switching) return;
+    if (_landing) {
+      if (p < _landingFloor) return;
+      _landing = false;
+    }
     position.value = p;
     if (state.phase == PlayerPhase.loading && p > _resumeAt) {
       state = state.copyWith(phase: PlayerPhase.ready);
@@ -719,6 +734,7 @@ class PlayerController extends Notifier<PlayerState> {
         : (duration > Duration.zero && to > duration ? duration : to);
     position.value = clamped;
     _resumeAt = clamped;
+    _landing = false;
     _stallTicks = 0;
     if (state.phase == PlayerPhase.ended && clamped < duration) {
       state = state.copyWith(phase: PlayerPhase.ready);
