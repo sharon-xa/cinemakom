@@ -1,5 +1,6 @@
 import 'package:cinemakom/app/app.dart';
 import 'package:cinemakom/app/router.dart';
+import 'package:cinemakom/core/diagnostics/event_log.dart';
 import 'package:cinemakom/core/network/api_endpoints.dart';
 import 'package:cinemakom/core/storage/preferences.dart';
 import 'package:cinemakom/data/models/localized_text.dart';
@@ -69,6 +70,22 @@ final controlsFade = find.ancestor(
 final choiceMenu = find.byWidgetPredicate((w) => w is ChoiceMenu);
 
 void main() {
+  testWidgets('opening the player makes one controller, kept until it closes', (
+    tester,
+  ) async {
+    final engine = FakeEngine();
+    await pumpApp(tester, engine: engine, width: 844, height: 390);
+    await openMovie(tester);
+    await tester.pump(const Duration(seconds: 2));
+
+    List<String> lines() => [
+      for (final e in EventLog.instance.recent)
+        if (e.tag == 'player' && RegExp('^(open|close) ').hasMatch(e.message))
+          e.message.split(' ').first,
+    ];
+    expect(lines(), ['open']);
+  });
+
   testWidgets('Play opens the player full screen, and back returns', (
     tester,
   ) async {

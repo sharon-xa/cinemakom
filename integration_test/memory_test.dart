@@ -276,6 +276,11 @@ void main() {
 
     PlayerState player() => container.read(playerControllerProvider(request));
 
+    /// Whether the player screen has made its controller. Reading it before
+    /// would make one of its own, which Riverpod throws away at once
+    /// (`autoDispose`), and the screen then makes another.
+    bool screenUp() => container.read(playerControllerProvider(request).exists);
+
     /// Opens the player and waits for it to play; returns how long that
     /// took (P2: time to the first frame).
     Future<int> openPlayer() async {
@@ -283,7 +288,9 @@ void main() {
       quiet(const Duration(seconds: 60));
       router.push('${AppRoutes.watch}/${request.videoId}', extra: request);
       final end = DateTime.now().add(const Duration(seconds: 60));
-      while (!(player().phase == PlayerPhase.ready && player().playing)) {
+      while (!(screenUp() &&
+          player().phase == PlayerPhase.ready &&
+          player().playing)) {
         if (DateTime.now().isAfter(end)) fail('the video never played');
         await wait(const Duration(milliseconds: 50));
       }
