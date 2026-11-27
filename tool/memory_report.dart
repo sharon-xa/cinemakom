@@ -49,7 +49,9 @@ String report(Map<String, dynamic> run) {
     ..writeln(
       '${run['device']} · ${run['ui']} · ${run['scenario']} · '
       '${run['version']} · ${run['quality']}p'
-      '${run['arenas'] == null ? '' : ' · glibc arenas ${run['arenas']}'}',
+      '${run['stream'] == null ? '' : ' · ${run['stream']} stream'}'
+      '${run['arenas'] == null ? '' : ' · glibc arenas ${run['arenas']}'}'
+      '${run['mmap_threshold'] == null ? '' : ', mmap threshold ${run['mmap_threshold']}'}',
     );
   final android = samples.any((s) => s['android_mb'] != null);
   final columns = <(String, Object? Function(Map<String, Object?>))>[

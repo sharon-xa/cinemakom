@@ -57,6 +57,7 @@ import 'package:cinemakom/app/widgets/poster_card.dart';
 import 'package:cinemakom/core/diagnostics/event_log.dart';
 import 'package:cinemakom/core/diagnostics/memory.dart';
 import 'package:cinemakom/core/network/api_endpoints.dart';
+import 'package:cinemakom/core/network/api_providers.dart';
 import 'package:cinemakom/core/platform/app_dirs.dart';
 import 'package:cinemakom/core/platform/app_info.dart';
 import 'package:cinemakom/core/platform/freed_memory.dart';
@@ -65,10 +66,13 @@ import 'package:cinemakom/core/player/media_kit_engine.dart';
 import 'package:cinemakom/core/storage/database.dart';
 import 'package:cinemakom/core/storage/preferences.dart';
 import 'package:cinemakom/data/models/localized_text.dart';
+import 'package:cinemakom/data/models/media_details.dart';
 import 'package:cinemakom/data/models/media_item.dart';
+import 'package:cinemakom/data/models/playback_models.dart';
 import 'package:cinemakom/data/models/playback_request.dart';
 import 'package:cinemakom/data/repositories/downloads_repository.dart';
 import 'package:cinemakom/data/repositories/library_repository.dart';
+import 'package:cinemakom/data/repositories/media_repository.dart';
 import 'package:cinemakom/features/player/player_controller.dart';
 import 'package:cinemakom/features/player/player_state.dart';
 import 'package:cinemakom/main.dart' show noRetry;
@@ -105,6 +109,13 @@ const appDirs = bool.fromEnvironment('MEMORY_APP_DIRS', defaultValue: true);
 const ab = String.fromEnvironment('MEMORY_AB');
 const perfRounds = int.fromEnvironment('PERF_ROUNDS', defaultValue: 3);
 const startRounds = int.fromEnvironment('STARTS', defaultValue: 10);
+
+/// A URL to play instead of the CDN's stream: the same file served from
+/// this machine (`tool/serve_video.py`), so start and seek times show the
+/// player and not the internet. The player's other lookups (details,
+/// subtitles, seek previews) answer at once too, since it waits for them
+/// before opening the stream.
+const localStream = String.fromEnvironment('MEMORY_STREAM');
 const downloadMinutes = int.fromEnvironment(
   'DOWNLOAD_MINUTES',
   defaultValue: 10,
@@ -266,6 +277,10 @@ void main() {
           libraryRepositoryProvider.overrideWithValue(
             MemoryLibraryRepository(),
           ),
+          if (localStream.isNotEmpty)
+            mediaRepositoryProvider.overrideWith(
+              (ref) => _LocalStream(ref.watch(apiClientProvider)),
+            ),
           // The download scenario keeps away from the real downloads.
           if (scenario == 'download') ...[
             appDatabaseProvider.overrideWithValue(downloadDb),
@@ -550,10 +565,14 @@ void main() {
         'ui': tv ? 'tv' : (isDesktop ? 'desktop' : 'phone'),
         'version': info.version,
         'quality': quality,
+        if (localStream.isNotEmpty) 'stream': 'local',
         // Linux: glibc's arena limit, the runner's 2 unless the environment
         // set one (docs/MEMORY.md M2, fix 4).
-        if (Platform.isLinux)
+        if (Platform.isLinux) ...{
           'arenas': Platform.environment['MALLOC_ARENA_MAX'] ?? '2 (runner)',
+          'mmap_threshold':
+              Platform.environment['MALLOC_MMAP_THRESHOLD_'] ?? 'glibc default',
+        },
         'samples': samples,
         if (perf.isNotEmpty) 'perf': perf,
         if (classesAtStart != null && classesAtEnd != null)
@@ -851,4 +870,29 @@ final class _MallInfo2 extends ffi.Struct {
   external int fordblks;
   @ffi.Size()
   external int keepcost;
+}
+
+/// MEMORY_STREAM: the title's 4K stream from this machine, and no waiting
+/// on the API for the rest of what the player asks before it opens.
+class _LocalStream extends MediaRepository {
+  _LocalStream(super.api);
+
+  @override
+  Future<List<VideoSource>> streams(String id, {bool fresh = false}) async => [
+    const VideoSource(
+      url: localStream,
+      name: 'mp4-4k',
+      resolution: '2160p',
+      container: 'mp4',
+    ),
+  ];
+
+  @override
+  Future<MediaDetails?> details(String id) async => null;
+
+  @override
+  Future<List<SubtitleTrack>> subtitles(String id) async => const [];
+
+  @override
+  Future<SeekPreview?> seekPreview(String id) async => null;
 }
