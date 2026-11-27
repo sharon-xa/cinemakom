@@ -19,6 +19,8 @@ analyzer:
     # gen-l10n output (regenerated on every build)
     - lib/app/l10n/app_localizations*.dart
     - macos/**
+    # Vendored packages (third_party/README.md), analyzed upstream
+    - third_party/**
 
 linter:
   # The lint rules applied to this project can be customized in the

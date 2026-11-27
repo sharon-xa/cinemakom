@@ -153,3 +153,8 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# media_kit_video with Cinemakom's Linux render change (third_party/README.md).
+dependency_overrides:
+  media_kit_video:
+    path: third_party/media_kit_video
