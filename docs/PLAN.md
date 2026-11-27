@@ -259,6 +259,7 @@ Each phase ends with something that runs. **Every phase is tested on Android and
 - **M5 done (2026-11-19, checked on the owner's phone):** Next episode autoplay, the Up next card and countdown, "Still watching?", the Episodes panel.
 - **M6 done (2026-11-19, checked on the owner's phone and Linux):** Skip intro and seek-bar previews.
 - **M7 done (2026-11-19, checked on the owner's phone):** gestures, the controls lock, audio interruptions (immersive mode, wakelock and orientation were already in). M8 done on Linux (2026-11-19, checked by the owner): desktop keys, mouse, cursor hiding, full screen, saved volume, focus rings; Windows not run yet. **M9 done (2026-11-19):** 4K frame times and memory on the phone, the Arabic pass, every error state, the end-to-end test (PLAYER.md §15).
+- *Linux, 2026-11-27:* the UI over a playing video runs at 60 fps (it was ~25): mpv's render waits for each frame's time only while the video is alone on screen. media_kit_video is now our copy in `third_party/` for that (PLAYER.md §14, `third_party/README.md`). The clock no longer shows 0:00 while a stream that starts later on opens (PLAYER.md §13). The memory work is in [`MEMORY.md`](MEMORY.md).
 - *Decisions (2026-11-19):*
   - The drift `watch_history` table is built in this phase, so resume works now. Phase 5 adds the Library UI.
   - The seek bar always runs left → right, in Arabic too.
