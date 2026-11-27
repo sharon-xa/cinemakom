@@ -134,6 +134,26 @@ static void media_kit_video_plugin_handle_method_call(
     FlValue* result = fl_value_new_null();
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(result));
 
+  } else if (g_strcmp0(method,
+                       "VideoOutputManager.SetBlockForTargetTime") == 0) {
+    // Cinemakom: see video_output_set_block_for_target_time.
+    FlValue* arguments = fl_method_call_get_args(method_call);
+    FlValue* handle = fl_value_lookup_string(arguments, "handle");
+    FlValue* block = fl_value_lookup_string(arguments, "block");
+    if (handle == NULL || block == NULL ||
+        fl_value_get_type(handle) != FL_VALUE_TYPE_STRING ||
+        fl_value_get_type(block) != FL_VALUE_TYPE_BOOL) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "bad-arguments", "handle (string) and block (bool)", NULL));
+    } else {
+      gint64 handle_value =
+          g_ascii_strtoll(fl_value_get_string(handle), NULL, 10);
+      video_output_manager_set_block_for_target_time(
+          self->video_output_manager, handle_value,
+          fl_value_get_bool(block));
+      response = FL_METHOD_RESPONSE(
+          fl_method_success_response_new(fl_value_new_null()));
+    }
   } else if (g_strcmp0(method, "Utils.EnterNativeFullscreen") == 0) {
     utils_enter_native_fullscreen(
         gtk_widget_get_toplevel(GTK_WIDGET(self->view)));

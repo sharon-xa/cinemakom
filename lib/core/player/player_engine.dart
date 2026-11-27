@@ -121,5 +121,14 @@ abstract interface class PlayerEngine {
   /// through video_player).
   Future<Map<String, int>> frameStats();
 
+  /// Whether nothing but the video is on screen: no controls, menus or
+  /// notes over it. On Linux mpv's texture then waits for each frame's
+  /// display time before Flutter draws it, which keeps the video's timing
+  /// exact on a VRR or high-refresh screen but holds the UI at ~25 fps;
+  /// with something over the video it doesn't wait, so the UI gets its
+  /// 60 fps and the video shows on Flutter's 60 Hz ticks (docs/PLAYER.md
+  /// §14). The default is alone. Nothing elsewhere.
+  Future<void> setVideoAlone(bool alone);
+
   Future<void> dispose();
 }

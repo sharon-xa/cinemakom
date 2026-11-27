@@ -352,6 +352,10 @@ class ExoPlayerEngine implements PlayerEngine {
   @override
   Future<Map<String, int>> frameStats() async => const {};
 
+  /// ExoPlayer draws on a surface of its own: nothing to change.
+  @override
+  Future<void> setVideoAlone(bool alone) async {}
+
   @override
   Future<void> dispose() async {
     if (_disposed) return;

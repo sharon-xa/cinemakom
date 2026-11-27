@@ -108,4 +108,19 @@ gint64 video_output_get_texture_id(VideoOutput* self);
 
 void video_output_notify_texture_update(VideoOutput* self);
 
+/**
+ * @brief Cinemakom: whether rendering waits for each frame's display time
+ * (mpv's |MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME|, 1 by default).
+ *
+ * The render runs on Flutter's raster thread, so waiting holds back every
+ * other frame of the UI (~25 fps over 24 fps video), while Flutter's frames
+ * come on a 60 Hz clock: not waiting shows each video frame at the next
+ * tick instead of its exact time, which only a VRR or high-refresh screen
+ * shows. Set to FALSE while anything is drawn over the video (controls,
+ * menus), TRUE when the video is alone. Any thread.
+ */
+void video_output_set_block_for_target_time(VideoOutput* self, gboolean block);
+
+gboolean video_output_get_block_for_target_time(VideoOutput* self);
+
 #endif  // VIDEO_OUTPUT_H_

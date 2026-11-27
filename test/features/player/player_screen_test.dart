@@ -148,6 +148,35 @@ void main() {
     expect(opacity(), 0);
   });
 
+  testWidgets('the engine hears when the video is alone on screen, after the '
+      'fade, and at once when something comes back over it', (tester) async {
+    final engine = FakeEngine();
+    await pumpApp(tester, engine: engine, width: 844, height: 390);
+    await openMovie(tester);
+    // Past the intro: its Skip button, pinned for 8 s, is over the video too.
+    engine.emitReady(at: const Duration(minutes: 30));
+    await tester.pump();
+    expect(engine.videoAlone, isFalse, reason: 'the controls are up');
+
+    // They hide 3 s in; the engine hears it once their fade is over.
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.widget<AnimatedOpacity>(controlsFade).opacity, 0);
+    expect(engine.videoAlone, isFalse, reason: 'still fading');
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(engine.videoAlone, isTrue);
+
+    await tester.tapAt(const Offset(422, 195));
+    await tester.pump();
+    expect(engine.videoAlone, isFalse);
+
+    // Back before the fade's end: it never says alone.
+    await tester.pump(const Duration(seconds: 3, milliseconds: 100));
+    await tester.tapAt(const Offset(422, 195));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(engine.videoAlone, isFalse);
+  });
+
   testWidgets('a tap outside a menu closes it and hides the controls', (
     tester,
   ) async {

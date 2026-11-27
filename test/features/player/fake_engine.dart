@@ -137,6 +137,12 @@ class FakeEngine implements PlayerEngine {
   @override
   Future<Map<String, int>> frameStats() async => const {};
 
+  /// The last [setVideoAlone], for the player screen's tests.
+  bool videoAlone = true;
+
+  @override
+  Future<void> setVideoAlone(bool alone) async => videoAlone = alone;
+
   @override
   Future<void> dispose() async => disposed = true;
 }

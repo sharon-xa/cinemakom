@@ -72,4 +72,11 @@ void video_output_manager_set_size(VideoOutputManager* self,
  */
 void video_output_manager_dispose(VideoOutputManager* self, gint64 handle);
 
+/**
+ * @brief Cinemakom: |video_output_set_block_for_target_time| for |handle|.
+ */
+void video_output_manager_set_block_for_target_time(VideoOutputManager* self,
+                                                    gint64 handle,
+                                                    gboolean block);
+
 #endif

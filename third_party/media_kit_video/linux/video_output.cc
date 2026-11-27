@@ -33,6 +33,7 @@ struct _VideoOutput {
   gpointer texture_update_callback_context;
   FlTextureRegistrar* texture_registrar;
   gboolean destroyed;
+  gint block_for_target_time; /* Cinemakom: atomic, see the header. */
 };
 
 G_DEFINE_TYPE(VideoOutput, video_output, G_TYPE_OBJECT)
@@ -115,6 +116,7 @@ static void video_output_init(VideoOutput* self) {
   self->texture_update_callback_context = NULL;
   self->texture_registrar = NULL;
   self->destroyed = FALSE;
+  self->block_for_target_time = 1;
   g_mutex_init(&self->mutex);
 }
 
@@ -479,6 +481,15 @@ gint64 video_output_get_texture_id(VideoOutput* self) {
   }
   g_assert_not_reached();
   return -1;
+}
+
+void video_output_set_block_for_target_time(VideoOutput* self,
+                                            gboolean block) {
+  g_atomic_int_set(&self->block_for_target_time, block ? 1 : 0);
+}
+
+gboolean video_output_get_block_for_target_time(VideoOutput* self) {
+  return g_atomic_int_get(&self->block_for_target_time) != 0;
 }
 
 void video_output_notify_texture_update(VideoOutput* self) {

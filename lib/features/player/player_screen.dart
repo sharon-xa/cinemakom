@@ -81,6 +81,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Timer? _toastTimer;
   Timer? _resumedTimer;
 
+  /// What [_syncVideoAlone] last asked for, and its wait for the fade.
+  bool _videoAlone = true;
+  Timer? _aloneTimer;
+
   /// A short note in the middle of the screen ("Fill" after the fit chip).
   ({IconData icon, String label})? _toast;
 
@@ -131,6 +135,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _bufferingTimer?.cancel();
     _toastTimer?.cancel();
     _resumedTimer?.cancel();
+    _aloneTimer?.cancel();
     _unlockTimer?.cancel();
     unawaited(_audio?.dispose());
     unawaited(_wakelock(on: false));
@@ -143,6 +148,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   // ---------------------------------------------------------------------------
   // Controls visibility (PLAYER.md §8)
+
+  /// Tells the engine whether anything is drawn over the video
+  /// ([PlayerEngine.setVideoAlone]; on Linux the UI gets 60 fps only while
+  /// something is). Going alone waits for the controls' fade-out, so the
+  /// fade runs at the full rate; anything appearing is passed on at once.
+  void _syncVideoAlone(bool alone) {
+    if (alone == _videoAlone) return;
+    _videoAlone = alone;
+    _aloneTimer?.cancel();
+    final engine = _controller.engine;
+    if (!alone) {
+      unawaited(engine.setVideoAlone(false));
+      return;
+    }
+    _aloneTimer = Timer(controlsFade + const Duration(milliseconds: 100), () {
+      if (mounted && _videoAlone) unawaited(engine.setVideoAlone(true));
+    });
+  }
 
   void _show() {
     if (!_visible) setState(() => _visible = true);
@@ -612,6 +635,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         phase == PlayerPhase.recovering ||
         (_showBuffering && state.buffering);
     final failed = phase == PlayerPhase.failed;
+    _syncVideoAlone(
+      !_visible &&
+          !_menuOpen &&
+          !_scrubbing &&
+          toast == null &&
+          !busy &&
+          !failed &&
+          state.resumedFrom == null &&
+          state.upNext == UpNext.none &&
+          !(state.intro != null && state.introPinned) &&
+          !(_locked && _unlockShown),
+    );
 
     // Back unlocks first.
     return PopScope(

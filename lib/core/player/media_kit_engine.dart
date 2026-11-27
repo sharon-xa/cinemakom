@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -85,6 +86,39 @@ class MediaKitEngine implements PlayerEngine {
       }
     }
     return stats;
+  }
+
+  /// [setVideoAlone]'s last wish, applied again to each new video output.
+  bool _videoAlone = true;
+
+  /// media_kit_video's channel; `SetBlockForTargetTime` is our addition to
+  /// its Linux code (third_party/README.md).
+  static const _videoChannel = MethodChannel(
+    'com.alexmercerind/media_kit_video',
+  );
+
+  @override
+  Future<void> setVideoAlone(bool alone) async {
+    if (_videoAlone == alone) return;
+    _videoAlone = alone;
+    await _applyVideoAlone(_player);
+  }
+
+  /// Linux only: the texture's wait (docs/PLAYER.md §14). The video output
+  /// exists from the first frame; a call before it changes nothing, so
+  /// [_ensurePlayer] calls this again then.
+  Future<void> _applyVideoAlone(Player? player) async {
+    if (!isLinux || player == null || _disposed) return;
+    try {
+      final handle = await (player.platform! as NativePlayer).handle;
+      if (_disposed || !identical(_player, player)) return;
+      await _videoChannel.invokeMethod<void>(
+        'VideoOutputManager.SetBlockForTargetTime',
+        {'handle': '$handle', 'block': _videoAlone},
+      );
+    } on Object {
+      // The player was closed meanwhile; the next output starts waiting.
+    }
   }
 
   static int get _bufferBytes => (isDesktop ? 192 : 64) * 1024 * 1024;
@@ -249,7 +283,14 @@ class MediaKitEngine implements PlayerEngine {
       s.width.listen((w) => _onSize(w, _height)),
       s.height.listen((h) => _onSize(_width, h)),
     ]);
-    _video.value = VideoController(player);
+    final controller = VideoController(player);
+    _video.value = controller;
+    unawaited(
+      controller.waitUntilFirstFrameRendered.then(
+        (_) => _applyVideoAlone(player),
+        onError: (Object _) {},
+      ),
+    );
     return player;
   }
 
